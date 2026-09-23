@@ -1,0 +1,81 @@
+# =================================================================================================
+# crypto-signals - full local or single-host deployment
+#
+#   docker compose up -d --build
+#
+#   UI      http://localhost:3000
+#   API     http://localhost:8080/api
+#   Swagger http://localhost:8080/swagger-ui.html
+#
+# Copy .env.example to .env first; every value below has a working default except the Telegram
+# credentials, which stay empty and simply leave that channel switched off.
+# =================================================================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cs-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cryptosignals}
+      POSTGRES_USER: ${POSTGRES_USER:-cryptosignals}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cryptosignals}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      # The app waits for this, so a slow first start never produces a misleading crash loop.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cryptosignals} -d ${POSTGRES_DB:-cryptosignals}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+    container_name: cs-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-cryptosignals}
+      DB_USERNAME: ${POSTGRES_USER:-cryptosignals}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-cryptosignals}
+      SERVER_PORT: 8080
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      # Watch list and history depth
+      CRYPTO_SIGNALS_MARKETS_SYMBOLS: ${SYMBOLS:-BTCUSDT,ETHUSDT}
+      CRYPTO_SIGNALS_MARKETS_TIMEFRAMES: ${TIMEFRAMES:-5m,15m,1h}
+      CRYPTO_SIGNALS_MARKETS_LOOKBACK: ${LOOKBACK:-30d}
+
+      # Detection rules (see docs/ALGORITHM.md before changing these)
+      CRYPTO_SIGNALS_ANALYSIS_MINTOUCHES: ${MIN_TOUCHES:-3}
+      CRYPTO_SIGNALS_ANALYSIS_TOUCHTOLERANCEPERCENT: ${TOUCH_TOLERANCE_PERCENT:-0.1}
+      CRYPTO_SIGNALS_ANALYSIS_BREAKOUTTOLERANCEPERCENT: ${BREAKOUT_TOLERANCE_PERCENT:-0.2}
+      CRYPTO_SIGNALS_ANALYSIS_MINCANDLESBETWEENTOUCHES: ${MIN_CANDLES_BETWEEN_TOUCHES:-10}
+      CRYPTO_SIGNALS_ANALYSIS_CONFIRMATIONCANDLES: ${CONFIRMATION_CANDLES:-1}
+
+      # Notifications (leave the token empty to keep Telegram switched off)
+      TELEGRAM_ENABLED: ${TELEGRAM_ENABLED:-false}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+
+      CRYPTO_SIGNALS_API_ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: cs-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+
+volumes:
+  postgres-data:

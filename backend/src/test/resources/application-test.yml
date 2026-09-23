@@ -1,0 +1,14 @@
+# Integration-test profile: no live exchange traffic, no notifications, no background schedulers.
+crypto-signals:
+  markets:
+    backfill-on-startup: false
+    live-enabled: false
+    symbols: [BTCUSDT]
+    timeframes: [5m]
+  notifications:
+    telegram:
+      enabled: false
+logging:
+  level:
+    org.hibernate.SQL: WARN
+    com.cryptosignals: INFO

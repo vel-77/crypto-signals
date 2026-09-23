@@ -1,0 +1,210 @@
+/* -------------------------------------------------------------------------------------------
+   A dense, dark, instrument-panel look. Numbers are the content here, so they get a tabular
+   monospace face and consistent alignment; chrome stays quiet so the data carries the contrast.
+   ------------------------------------------------------------------------------------------- */
+
+:root {
+  --bg: #0b0f14;
+  --bg-raised: #111721;
+  --bg-hover: #161e2a;
+  --border: #1f2a37;
+  --border-strong: #2b3a4d;
+  --text: #dfe7f1;
+  --text-dim: #8a99ad;
+  --text-faint: #5b6879;
+
+  --resistance: #f4736b;
+  --support: #4fc7a1;
+  --signal: #f0b429;
+  --broken: #6b7a8f;
+
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app { display: flex; flex-direction: column; height: 100%; }
+
+/* ---- header ---- */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 18px;
+  height: 52px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  flex-shrink: 0;
+}
+
+.brand { font-weight: 650; letter-spacing: -0.01em; font-size: 14px; }
+.brand span { color: var(--signal); }
+
+.tabs { display: flex; gap: 2px; margin-left: 8px; }
+
+.tab {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 7px 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+}
+.tab:hover { background: var(--bg-hover); color: var(--text); }
+.tab[aria-selected='true'] { background: var(--bg-hover); color: var(--text); font-weight: 550; }
+
+.header-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+
+.pill {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+}
+.pill.live { color: var(--support); border-color: color-mix(in srgb, var(--support) 40%, transparent); }
+.pill.down { color: var(--resistance); border-color: color-mix(in srgb, var(--resistance) 40%, transparent); }
+
+/* ---- filters ---- */
+.filters {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); }
+
+.field input, .field select {
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  border-radius: 5px;
+  padding: 6px 9px;
+  font-family: var(--mono);
+  font-size: 12px;
+  min-width: 118px;
+}
+.field input:focus, .field select:focus { outline: none; border-color: var(--signal); }
+
+.btn {
+  background: var(--bg-hover);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  border-radius: 5px;
+  padding: 7px 14px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+.btn:hover { border-color: var(--signal); }
+
+/* ---- layout ---- */
+.body { display: flex; flex: 1; min-height: 0; }
+.list-pane { width: 54%; overflow: auto; border-right: 1px solid var(--border); }
+.detail-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: auto; }
+.full-pane { flex: 1; overflow: auto; padding: 18px; }
+
+/* ---- table ---- */
+table { width: 100%; border-collapse: collapse; }
+
+th {
+  text-align: left;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  font-weight: 550;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 1;
+}
+
+td { padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--bg-hover); }
+tbody tr[aria-selected='true'] { background: var(--bg-hover); box-shadow: inset 2px 0 0 var(--signal); }
+
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.dim { color: var(--text-dim); }
+.faint { color: var(--text-faint); }
+
+.type-RESISTANCE { color: var(--resistance); font-weight: 600; }
+.type-SUPPORT { color: var(--support); font-weight: 600; }
+
+.badge {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.badge.ACTIVE { color: var(--support); border-color: color-mix(in srgb, var(--support) 35%, transparent); }
+.badge.INVALIDATED, .badge.BROKEN { color: var(--broken); }
+.badge.EXPIRED { color: var(--text-faint); }
+
+/* ---- detail ---- */
+.detail-head {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.detail-title { font-size: 17px; font-weight: 650; display: flex; align-items: baseline; gap: 10px; }
+.detail-sub { color: var(--text-dim); margin-top: 5px; font-family: var(--mono); font-size: 12px; }
+
+.stat-row { display: flex; gap: 28px; margin-top: 14px; flex-wrap: wrap; }
+.stat-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); }
+.stat-value { font-family: var(--mono); font-size: 14px; margin-top: 3px; }
+
+.chart-wrap { padding: 12px 18px; }
+.chart { height: 340px; width: 100%; }
+
+.section-title {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  padding: 14px 18px 6px;
+}
+
+.empty { padding: 48px 18px; text-align: center; color: var(--text-faint); }
+.error { margin: 14px 18px; padding: 11px 14px; border-radius: 6px; background: color-mix(in srgb, var(--resistance) 12%, transparent); border: 1px solid color-mix(in srgb, var(--resistance) 35%, transparent); color: var(--resistance); font-family: var(--mono); font-size: 12px; }
+
+pre.config {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  overflow: auto;
+  margin: 0;
+}
+
+.legend { display: flex; gap: 16px; padding: 0 18px 10px; font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+.legend i { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 5px; }

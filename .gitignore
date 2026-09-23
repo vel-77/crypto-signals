@@ -1,0 +1,20 @@
+# build output
+backend/target/
+frontend/dist/
+frontend/node_modules/
+
+# local environment
+.env
+
+# editors
+.idea/
+.vscode/
+*.iml
+*.swp
+.DS_Store
+
+# exports
+*.local.json
+*.local.csv
+.playwright-mcp/
+frontend/tsconfig.tsbuildinfo
