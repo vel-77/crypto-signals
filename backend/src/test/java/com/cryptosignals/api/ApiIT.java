@@ -149,6 +149,7 @@ class ApiIT extends PostgresIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.analysis.minTouches").value(3))
                 .andExpect(jsonPath("$.analysis.touchTolerancePercent").value(0.1))
+                .andExpect(jsonPath("$.analysis.emitSignalOnEveryTouchAfterMin").value(true))
                 .andExpect(jsonPath("$.configFingerprint").exists())
                 .andExpect(jsonPath("$.detectionStrategy").value(
                         org.hamcrest.Matchers.containsString("swing-cluster")))

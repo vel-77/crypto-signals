@@ -228,7 +228,10 @@ thirty more candles. Enforced in three independent places:
 3. by deriving the signal id from `(levelId, touchCount)`, so a replay produces the *same* id and
    upserts rather than inserting.
 
-Setting `emitSignalOnEveryTouchAfterMin = true` re-arms it for each additional distinct touch.
+Setting `emitSignalOnEveryTouchAfterMin = true` re-arms it for each additional distinct touch, so a
+level raises a 3-touch signal, then a 4-touch signal, a 5-touch signal and so on — each exactly once.
+**The application ships with this switched on** (`SIGNAL_ON_EVERY_TOUCH=true`); the engine's own
+default, used by the tests above, is off. Resting on the level between touches still never re-emits.
 
 ---
 

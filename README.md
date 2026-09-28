@@ -113,7 +113,7 @@ and can be overridden by environment variable. Nothing is hardcoded.
 crypto-signals:
   markets:
     symbols: [BTCUSDT, ETHUSDT]
-    timeframes: [5m, 15m, 1h]     # each symbol x timeframe is an independent analysis
+    timeframes: [15m, 30m, 1h]    # each symbol x timeframe is an independent analysis
     lookback: 30d                 # 24h / 7d / 30d / 365d; 0 = all available history
 
   analysis:
@@ -125,6 +125,7 @@ crypto-signals:
     confirmation-candles: 1
     close-beyond-level: true      # a lone wick does not break a level
     wick-break-allowed: false
+    emit-signal-on-every-touch-after-min: true  # also signal on touch 4, 5, ...
 ```
 
 `GET /api/config` returns exactly what the running engine is using, including a fingerprint that
