@@ -21,6 +21,7 @@ export default function App() {
   const [status, setStatus] = useState<Record<string, unknown> | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [timeframes, setTimeframes] = useState<string[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -45,6 +46,17 @@ export default function App() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // The filter offers only the timeframes the server is actually watching, so it can never
+  // suggest one that has no data.
+  useEffect(() => {
+    api.config()
+      .then((c) => {
+        const markets = c.markets as { timeframes?: string[] } | undefined
+        setTimeframes(markets?.timeframes ?? [])
+      })
+      .catch(() => {})
+  }, [])
 
   // Poll the pipeline status so the header reflects reality without a manual refresh.
   useEffect(() => {
@@ -92,6 +104,7 @@ export default function App() {
           value={filters}
           onChange={setFilters}
           onRefresh={() => void load()}
+          timeframes={timeframes}
           statusOptions={
             tab === 'signals'
               ? ['ACTIVE', 'INVALIDATED', 'EXPIRED']

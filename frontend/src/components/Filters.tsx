@@ -5,11 +5,11 @@ interface Props {
   onChange: (next: FilterState) => void
   onRefresh: () => void
   statusOptions: string[]
+  /** Timeframes the app is watching, from the server's configuration. */
+  timeframes: string[]
 }
 
-const TIMEFRAMES = ['', '1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '12h', '1d']
-
-export function Filters({ value, onChange, onRefresh, statusOptions }: Props) {
+export function Filters({ value, onChange, onRefresh, statusOptions, timeframes }: Props) {
   const set = (key: keyof FilterState) => (event: { target: { value: string } }) =>
     onChange({ ...value, [key]: event.target.value })
 
@@ -28,8 +28,9 @@ export function Filters({ value, onChange, onRefresh, statusOptions }: Props) {
       <div className="field">
         <label htmlFor="f-tf">Timeframe</label>
         <select id="f-tf" value={value.timeframe} onChange={set('timeframe')}>
-          {TIMEFRAMES.map((tf) => (
-            <option key={tf || 'all'} value={tf}>{tf || 'all'}</option>
+          <option value="">all</option>
+          {timeframes.map((tf) => (
+            <option key={tf} value={tf}>{tf}</option>
           ))}
         </select>
       </div>
