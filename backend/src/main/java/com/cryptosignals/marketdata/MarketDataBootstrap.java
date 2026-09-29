@@ -112,8 +112,8 @@ public class MarketDataBootstrap implements ApplicationRunner {
      *
      * <p>The live stream can miss candles without ever reporting an error — a silent half-open
      * socket, a brief outage that reconnected cleanly, an exchange that simply skipped a minute.
-     * This sweep refetches anything missing and feeds it through, so the analysis converges back on
-     * the truth even when nothing looked broken.
+     * This sweep refetches anything missing and then feeds every stored-but-unanalysed candle through
+     * the engine, so the analysis converges back on the truth even when nothing looked broken.
      */
     @Scheduled(initialDelayString = "${crypto-signals.markets.reconciliation-interval:15m}",
             fixedDelayString = "${crypto-signals.markets.reconciliation-interval:15m}")
@@ -131,6 +131,13 @@ public class MarketDataBootstrap implements ApplicationRunner {
                 }
             } catch (Exception ex) {
                 log.warn("Reconciliation failed for {}: {}", engine.key(), ex.toString());
+            }
+            // Separate from the download above: even if the exchange is unreachable right now,
+            // candles stored earlier must still reach the engine.
+            try {
+                analysisService.catchUp(engine);
+            } catch (Exception ex) {
+                log.warn("Catch-up failed for {}: {}", engine.key(), ex.toString());
             }
         }
     }

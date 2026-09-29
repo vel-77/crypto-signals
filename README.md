@@ -239,8 +239,8 @@ implementation of one method.
 
 ```bash
 cd backend
-mvn test                                        # 127 unit tests, no Docker needed
-mvn verify                                      # + 16 integration tests (real PostgreSQL)
+mvn test                                        # 131 unit tests, no Docker needed
+mvn verify                                      # + 17 integration tests (real PostgreSQL)
 mvn test -Dgroups=external -Dtest.excluded.groups=   # + 5 live Binance API tests
 ```
 
@@ -267,6 +267,7 @@ fails if the migrations and the entity mappings ever disagree.
 | Out-of-order candle | Rejected, state untouched — applying it would corrupt every state machine. |
 | Missing candles | Detected in one indexed pass, refetched per gap rather than re-downloading history. |
 | Websocket disconnect | Exponential backoff reconnect; the gap it left is healed from REST before processing resumes. |
+| Websocket dies silently | A network cut can leave a socket "open" with no close or error ever arriving. A watchdog treats 90 s without data as dead and reconnects, and the 15-minute reconciliation feeds any candles the engine missed through the analysis. |
 | Partial candle | Dropped at the boundary — the engine only ever sees closed candles. |
 | Rate limits | Weight-aware sliding-window limiter, reconciled against Binance's own header; 429/418 honoured with `Retry-After`. |
 | Telegram failure | Signal stays queued in the database and is retried; never delivered twice. |

@@ -21,6 +21,8 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -45,6 +47,9 @@ public final class BinanceCandleStream implements StreamSubscription {
 
     private static final Logger log = LoggerFactory.getLogger(BinanceCandleStream.class);
 
+    /** How often every connection is checked for silence. */
+    private static final long LIVENESS_CHECK_MILLIS = 15_000;
+
     /** Well below the venue's documented per-connection ceiling, leaving room to grow. */
     private static final int STREAMS_PER_CONNECTION = 200;
 
@@ -56,6 +61,7 @@ public final class BinanceCandleStream implements StreamSubscription {
     private final HttpClient http;
     private final List<Connection> connections = new ArrayList<>();
     private final AtomicLong reconnects = new AtomicLong();
+    private final long staleAfterMillis;
 
     private volatile boolean closed;
 
@@ -64,6 +70,7 @@ public final class BinanceCandleStream implements StreamSubscription {
         this.settings = settings;
         this.mapper = mapper;
         this.listener = listener;
+        this.staleAfterMillis = settings.streamStaleAfter().toMillis();
         this.scheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "binance-ws-reconnect");
             thread.setDaemon(true);
@@ -86,6 +93,20 @@ public final class BinanceCandleStream implements StreamSubscription {
             connections.add(connection);
             connection.connect();
         }
+        scheduler.scheduleWithFixedDelay(this::checkLiveness,
+                LIVENESS_CHECK_MILLIS, LIVENESS_CHECK_MILLIS, TimeUnit.MILLISECONDS);
+    }
+
+    private void checkLiveness() {
+        long now = System.currentTimeMillis();
+        for (Connection connection : connections) {
+            try {
+                connection.checkLiveness(now);
+            } catch (RuntimeException ex) {
+                // The watchdog must keep running whatever one connection does.
+                log.warn("Websocket liveness check failed: {}", ex.toString());
+            }
+        }
     }
 
     static String streamName(MarketKey market) {
@@ -97,7 +118,10 @@ public final class BinanceCandleStream implements StreamSubscription {
         if (connections.isEmpty()) {
             return false;
         }
-        return connections.stream().allMatch(connection -> connection.socket != null);
+        // Connected means data is actually arriving, not merely that a socket object exists: a
+        // silently dead connection must not be reported as healthy.
+        long now = System.currentTimeMillis();
+        return connections.stream().allMatch(connection -> connection.isHealthy(now));
     }
 
     @Override
@@ -115,13 +139,24 @@ public final class BinanceCandleStream implements StreamSubscription {
         log.info("Binance candle stream closed");
     }
 
-    /** One websocket connection covering a subset of the subscribed streams. */
-    private final class Connection implements WebSocket.Listener {
+    /**
+     * One websocket connection covering a subset of the subscribed streams.
+     *
+     * <p>Each socket attempt gets its own {@link SocketListener} tagged with a generation number.
+     * When a socket is replaced — reconnect after an error, or the liveness watchdog giving up on a
+     * silent one — the generation moves on, and any late callback from the old socket is ignored.
+     * Without that, an aborted socket reporting its error after the replacement had already started
+     * would schedule a second reconnect and leave two sockets delivering the same candles.
+     */
+    private final class Connection {
 
         private final List<String> streams;
-        private final StringBuilder textBuffer = new StringBuilder();
+        private final AtomicInteger generation = new AtomicInteger();
+        private final AtomicBoolean reconnectScheduled = new AtomicBoolean();
         private volatile WebSocket socket;
         private volatile long backoffMillis;
+        /** Wall-clock time of the last message received, or of the last successful connect. */
+        private volatile long lastMessageAt;
 
         private Connection(List<String> streams) {
             this.streams = streams;
@@ -137,15 +172,24 @@ public final class BinanceCandleStream implements StreamSubscription {
             if (closed) {
                 return;
             }
+            reconnectScheduled.set(false);
+            int attempt = generation.incrementAndGet();
             http.newWebSocketBuilder()
                     .connectTimeout(settings.connectTimeout())
-                    .buildAsync(uri(), this)
+                    .buildAsync(uri(), new SocketListener(attempt))
                     .whenComplete((webSocket, error) -> {
+                        if (attempt != generation.get() || closed) {
+                            if (webSocket != null) {
+                                webSocket.abort();
+                            }
+                            return;
+                        }
                         if (error != null) {
                             log.warn("Binance websocket connect failed: {}", error.toString());
                             scheduleReconnect();
                             return;
                         }
+                        lastMessageAt = System.currentTimeMillis();
                         socket = webSocket;
                         // A connection that opened is assumed healthy; the backoff starts over so a
                         // single blip does not leave us throttled for minutes afterwards.
@@ -156,7 +200,7 @@ public final class BinanceCandleStream implements StreamSubscription {
         }
 
         private void scheduleReconnect() {
-            if (closed) {
+            if (closed || !reconnectScheduled.compareAndSet(false, true)) {
                 return;
             }
             socket = null;
@@ -171,7 +215,40 @@ public final class BinanceCandleStream implements StreamSubscription {
             }
         }
 
+        /**
+         * Gives up on a socket that has gone quiet.
+         *
+         * <p>A network that disappears without sending a TCP reset — a provider cutting the
+         * server's link, a NAT entry expiring, a middlebox dropping state — leaves the socket
+         * looking open forever: no close frame and no error ever arrive, and nothing is written
+         * that could fail. Binance pushes an update for every subscribed kline stream every couple
+         * of seconds, so prolonged silence is itself the failure signal.
+         */
+        void checkLiveness(long now) {
+            WebSocket current = socket;
+            if (current == null || closed) {
+                return;
+            }
+            long silentFor = now - lastMessageAt;
+            if (silentFor <= staleAfterMillis) {
+                return;
+            }
+            log.warn("Binance websocket silent for {} s; assuming the connection is dead and reconnecting",
+                    silentFor / 1000);
+            generation.incrementAndGet();
+            socket = null;
+            current.abort();
+            listener.onDisconnected(new java.util.concurrent.TimeoutException(
+                    "no data for " + silentFor + " ms"));
+            scheduleReconnect();
+        }
+
+        boolean isHealthy(long now) {
+            return socket != null && now - lastMessageAt <= staleAfterMillis;
+        }
+
         void closeSocket() {
+            generation.incrementAndGet();
             WebSocket current = socket;
             socket = null;
             if (current != null) {
@@ -179,37 +256,60 @@ public final class BinanceCandleStream implements StreamSubscription {
             }
         }
 
-        @Override
-        public void onOpen(WebSocket webSocket) {
-            webSocket.request(1);
-        }
+        /** Callbacks for exactly one socket attempt. */
+        private final class SocketListener implements WebSocket.Listener {
 
-        @Override
-        public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
-            // A single logical message can arrive as several frames; accumulate until it is whole.
-            textBuffer.append(data);
-            if (last) {
-                String payload = textBuffer.toString();
-                textBuffer.setLength(0);
-                handleMessage(payload);
+            private final int attempt;
+            private final StringBuilder textBuffer = new StringBuilder();
+
+            private SocketListener(int attempt) {
+                this.attempt = attempt;
             }
-            webSocket.request(1);
-            return null;
-        }
 
-        @Override
-        public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
-            log.info("Binance websocket closed ({}): {}", statusCode, reason);
-            listener.onDisconnected(null);
-            scheduleReconnect();
-            return null;
-        }
+            private boolean current() {
+                return attempt == generation.get();
+            }
 
-        @Override
-        public void onError(WebSocket webSocket, Throwable error) {
-            log.warn("Binance websocket error: {}", error.toString());
-            listener.onDisconnected(error);
-            scheduleReconnect();
+            @Override
+            public void onOpen(WebSocket webSocket) {
+                webSocket.request(1);
+            }
+
+            @Override
+            public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+                if (!current()) {
+                    return null;
+                }
+                lastMessageAt = System.currentTimeMillis();
+                // A single logical message can arrive as several frames; accumulate until whole.
+                textBuffer.append(data);
+                if (last) {
+                    String payload = textBuffer.toString();
+                    textBuffer.setLength(0);
+                    handleMessage(payload);
+                }
+                webSocket.request(1);
+                return null;
+            }
+
+            @Override
+            public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
+                if (current()) {
+                    log.info("Binance websocket closed ({}): {}", statusCode, reason);
+                    listener.onDisconnected(null);
+                    scheduleReconnect();
+                }
+                return null;
+            }
+
+            @Override
+            public void onError(WebSocket webSocket, Throwable error) {
+                if (current()) {
+                    log.warn("Binance websocket error: {}", error.toString());
+                    listener.onDisconnected(error);
+                    scheduleReconnect();
+                }
+            }
         }
     }
 
@@ -254,6 +354,26 @@ public final class BinanceCandleStream implements StreamSubscription {
     /** Package-visible for unit testing the parser without a live socket. */
     void handleMessageForTest(String payload) {
         handleMessage(payload);
+    }
+
+    /** Test hook: installs a socket on the first connection as if it had last spoken at the given time. */
+    void installSocketForTest(WebSocket webSocket, long lastMessageAt) {
+        Connection connection = connections.get(0);
+        connection.generation.incrementAndGet();
+        connection.socket = webSocket;
+        connection.lastMessageAt = lastMessageAt;
+    }
+
+    /** Test hook: runs one liveness sweep as of the given time. */
+    void checkLivenessForTest(long now) {
+        for (Connection connection : connections) {
+            connection.checkLiveness(now);
+        }
+    }
+
+    /** Test hook: whether the first connection is considered healthy at the given time. */
+    boolean isHealthyForTest(long now) {
+        return connections.get(0).isHealthy(now);
     }
 
 }

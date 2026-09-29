@@ -34,11 +34,17 @@ public class ExchangeProperties {
     private Duration reconnectMinBackoff = Duration.ofSeconds(1);
     private Duration reconnectMaxBackoff = Duration.ofMinutes(2);
 
+    /**
+     * A live stream that delivers nothing for this long is treated as dead and reconnected.
+     * Binance pushes each kline stream every ~2 seconds, so this is many missed updates.
+     */
+    private Duration streamStaleAfter = Duration.ofSeconds(90);
+
     /** Adapts external configuration into the exchange layer's own settings type. */
     public ExchangeSettings toSettings() {
         return new ExchangeSettings(restBaseUrl, wsBaseUrl, connectTimeout, readTimeout,
                 klinePageSize, maxWeightPerMinute, maxRetries, retryBackoff,
-                reconnectMinBackoff, reconnectMaxBackoff);
+                reconnectMinBackoff, reconnectMaxBackoff, streamStaleAfter);
     }
 
     public String getName() { return name; }
@@ -62,5 +68,7 @@ public class ExchangeProperties {
     public Duration getReconnectMinBackoff() { return reconnectMinBackoff; }
     public void setReconnectMinBackoff(Duration v) { this.reconnectMinBackoff = v; }
     public Duration getReconnectMaxBackoff() { return reconnectMaxBackoff; }
+    public Duration getStreamStaleAfter() { return streamStaleAfter; }
+    public void setStreamStaleAfter(Duration v) { this.streamStaleAfter = v; }
     public void setReconnectMaxBackoff(Duration v) { this.reconnectMaxBackoff = v; }
 }

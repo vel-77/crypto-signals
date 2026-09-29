@@ -22,7 +22,8 @@ public record ExchangeSettings(
         int maxRetries,
         Duration retryBackoff,
         Duration reconnectMinBackoff,
-        Duration reconnectMaxBackoff) {
+        Duration reconnectMaxBackoff,
+        Duration streamStaleAfter) {
 
     /** Sensible Binance-shaped defaults, handy for tests. */
     public static ExchangeSettings defaults() {
@@ -30,11 +31,12 @@ public record ExchangeSettings(
                 "https://api.binance.com", "wss://stream.binance.com:9443",
                 Duration.ofSeconds(10), Duration.ofSeconds(30),
                 1000, 2400, 5, Duration.ofSeconds(1),
-                Duration.ofSeconds(1), Duration.ofMinutes(2));
+                Duration.ofSeconds(1), Duration.ofMinutes(2), Duration.ofSeconds(90));
     }
 
     public ExchangeSettings withWsBaseUrl(String url) {
         return new ExchangeSettings(restBaseUrl, url, connectTimeout, readTimeout, klinePageSize,
-                maxWeightPerMinute, maxRetries, retryBackoff, reconnectMinBackoff, reconnectMaxBackoff);
+                maxWeightPerMinute, maxRetries, retryBackoff, reconnectMinBackoff, reconnectMaxBackoff,
+                streamStaleAfter);
     }
 }

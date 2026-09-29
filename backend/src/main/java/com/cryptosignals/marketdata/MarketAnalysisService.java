@@ -158,6 +158,48 @@ public class MarketAnalysisService {
         }
     }
 
+    /**
+     * Feeds stored candles the engine has not processed yet.
+     *
+     * <p>Reconciliation downloads candles the live stream missed, but storing them is not enough:
+     * the engine only learns about a candle when it is fed one. Without this, a stream that died
+     * silently would leave the database complete and the analysis frozen at the moment the stream
+     * stopped — no new levels, touches or signals until the next restart.
+     *
+     * <p>Safe to run while the live stream is also delivering: the engine processes candles one at
+     * a time under the market's lock and ignores any it has already seen, so the two paths merge
+     * into a single ascending sequence.
+     *
+     * @return how many candles were newly analysed
+     */
+    public int catchUp(MarketEngine marketEngine) {
+        long last = marketEngine.lastCandleOpenTime();
+        if (last < 0) {
+            return 0;
+        }
+        long step = marketEngine.key().timeframe().durationMillis();
+        List<Candle> pending = candles.findRange(marketEngine.market().getId(),
+                Instant.ofEpochMilli(last + step), Instant.now(), 10_000);
+
+        int analysed = 0;
+        for (Candle candle : pending) {
+            EngineUpdate update = marketEngine.process(candle);
+            if (!update.accepted()) {
+                continue;
+            }
+            persist(marketEngine, update);
+            for (TradingSignal signal : update.newSignals()) {
+                notifications.dispatch(signal);
+            }
+            analysed++;
+        }
+        if (analysed > 0) {
+            log.info("Caught up {} candle(s) for {} that the live stream had not delivered",
+                    analysed, marketEngine.key());
+        }
+        return analysed;
+    }
+
     private void fillGapBefore(MarketEngine marketEngine, Candle candle) {
         long last = marketEngine.lastCandleOpenTime();
         long step = marketEngine.key().timeframe().durationMillis();

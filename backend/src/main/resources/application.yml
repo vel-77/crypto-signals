@@ -95,6 +95,7 @@ crypto-signals:
     retry-backoff: 1s
     reconnect-min-backoff: 1s
     reconnect-max-backoff: 2m
+    stream-stale-after: 90s         # no data for this long means the live connection is dead
 
   # -----------------------------------------------------------------------------------------------
   # The detection rules. See docs/ALGORITHM.md for what each one means and why it exists.
