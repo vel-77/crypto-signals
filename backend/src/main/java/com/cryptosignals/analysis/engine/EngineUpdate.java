@@ -15,7 +15,8 @@ import java.util.List;
  * @param candleTime          open time of the candle, epoch millis
  * @param newSignals          signals emitted on this candle
  * @param newBreakouts        breakouts confirmed on this candle
- * @param invalidatedSignals  previously active signals invalidated by those breakouts
+ * @param statusChangedSignals previously active signals whose status changed on this candle:
+ *                            INVALIDATED by a breakout, or SUPERSEDED by a closer level
  * @param changedLevels       snapshots of every level whose state changed on this candle
  */
 public record EngineUpdate(
@@ -24,13 +25,13 @@ public record EngineUpdate(
         long candleTime,
         List<TradingSignal> newSignals,
         List<BreakoutEvent> newBreakouts,
-        List<TradingSignal> invalidatedSignals,
+        List<TradingSignal> statusChangedSignals,
         List<DetectedLevel> changedLevels) {
 
     public EngineUpdate {
         newSignals = newSignals == null ? List.of() : List.copyOf(newSignals);
         newBreakouts = newBreakouts == null ? List.of() : List.copyOf(newBreakouts);
-        invalidatedSignals = invalidatedSignals == null ? List.of() : List.copyOf(invalidatedSignals);
+        statusChangedSignals = statusChangedSignals == null ? List.of() : List.copyOf(statusChangedSignals);
         changedLevels = changedLevels == null ? List.of() : List.copyOf(changedLevels);
     }
 
@@ -40,6 +41,6 @@ public record EngineUpdate(
 
     public boolean hasChanges() {
         return !newSignals.isEmpty() || !newBreakouts.isEmpty()
-                || !invalidatedSignals.isEmpty() || !changedLevels.isEmpty();
+                || !statusChangedSignals.isEmpty() || !changedLevels.isEmpty();
     }
 }

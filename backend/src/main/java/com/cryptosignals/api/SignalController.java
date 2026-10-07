@@ -40,19 +40,23 @@ public class SignalController {
 
     @GetMapping
     @Operation(summary = "List signals, newest first",
-            description = "Every filter is optional and they combine.")
+            description = "Every filter is optional. List filters take several comma-separated values, "
+                    + "which are OR-ed; different filters are AND-ed.")
     public Dtos.PageDto<Dtos.SignalDto> list(
-            @Parameter(description = "e.g. BTCUSDT") @RequestParam(required = false) String symbol,
-            @Parameter(description = "e.g. 5m") @RequestParam(required = false) String timeframe,
-            @Parameter(description = "SUPPORT or RESISTANCE") @RequestParam(required = false) LevelType type,
-            @Parameter(description = "ACTIVE, INVALIDATED or EXPIRED") @RequestParam(required = false) SignalStatus status,
+            @Parameter(description = "one or more, e.g. BTCUSDT,SOLUSDT") @RequestParam(required = false) List<String> symbol,
+            @Parameter(description = "one or more, e.g. 15m,1h") @RequestParam(required = false) List<String> timeframe,
+            @Parameter(description = "SUPPORT and/or RESISTANCE") @RequestParam(required = false) List<LevelType> type,
+            @Parameter(description = "one or more of ACTIVE, SUPERSEDED, INVALIDATED, EXPIRED") @RequestParam(required = false) List<SignalStatus> status,
+            @Parameter(description = "exact touch counts, e.g. 3,4") @RequestParam(required = false) List<Integer> touches,
+            @Parameter(description = "also include signals with at least this many touches") @RequestParam(required = false) Integer touchesAtLeast,
             @Parameter(description = "only signals found during historical replay") @RequestParam(required = false) Boolean historical,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
             @PageableDefault(size = 50, sort = "detectedAt", direction = Sort.Direction.DESC) Pageable pageable) {
 
         Page<SignalEntity> page = signals.findAll(
-                QuerySpecifications.signals(symbol, timeframe, type, status, from, to, historical),
+                QuerySpecifications.signals(symbol, timeframe, type, status,
+                        new QuerySpecifications.TouchFilter(touches, touchesAtLeast), from, to, historical),
                 pageable);
         // Touches are omitted from list responses: a page of 50 signals would otherwise issue 50
         // extra queries to render detail nobody reads in a list.

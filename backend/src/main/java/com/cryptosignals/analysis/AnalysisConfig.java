@@ -53,6 +53,10 @@ import java.time.Duration;
  * @param maxActiveLevelsPerMarket bound on retained levels per market (memory safety)
  * @param levelExpiryCandles       drop untouched levels after this many candles; 0 disables
  * @param enableRoleFlip           on a confirmed breakout, immediately seed an opposite-type level
+ * @param supersedeEnabled         retire a level once price has moved past it and a stronger level
+ *                                 of the same role, close by on the far side, is nearer to price
+ * @param supersedeMaxDistancePercent how far apart (percent of the passed level's price) the two
+ *                                 levels may be for the far one to take over
  *
  * <h2>Strength scoring weights</h2>
  * @param strengthTouchWeight     weight of the touch count component
@@ -89,6 +93,9 @@ public record AnalysisConfig(
         int maxActiveLevelsPerMarket,
         int levelExpiryCandles,
         boolean enableRoleFlip,
+        // relevance
+        boolean supersedeEnabled,
+        double supersedeMaxDistancePercent,
         // strength weights
         double strengthTouchWeight,
         double strengthRejectionWeight,
@@ -109,6 +116,7 @@ public record AnalysisConfig(
         nonNegativeDouble(atrToleranceMultiplier, "atrToleranceMultiplier");
         nonNegativeDouble(minDeparturePercent, "minDeparturePercent");
         nonNegativeDouble(minLevelStrength, "minLevelStrength");
+        nonNegativeDouble(supersedeMaxDistancePercent, "supersedeMaxDistancePercent");
         nonNegativeDouble(strengthTouchWeight, "strengthTouchWeight");
         nonNegativeDouble(strengthRejectionWeight, "strengthRejectionWeight");
         nonNegativeDouble(strengthSpanWeight, "strengthSpanWeight");
@@ -225,6 +233,9 @@ public record AnalysisConfig(
         private int levelExpiryCandles = 0;
         private boolean enableRoleFlip = false;
 
+        private boolean supersedeEnabled = true;
+        private double supersedeMaxDistancePercent = 0.5;
+
         private double strengthTouchWeight = 0.5;
         private double strengthRejectionWeight = 0.3;
         private double strengthSpanWeight = 0.2;
@@ -256,6 +267,8 @@ public record AnalysisConfig(
             this.maxActiveLevelsPerMarket = c.maxActiveLevelsPerMarket;
             this.levelExpiryCandles = c.levelExpiryCandles;
             this.enableRoleFlip = c.enableRoleFlip;
+            this.supersedeEnabled = c.supersedeEnabled;
+            this.supersedeMaxDistancePercent = c.supersedeMaxDistancePercent;
             this.strengthTouchWeight = c.strengthTouchWeight;
             this.strengthRejectionWeight = c.strengthRejectionWeight;
             this.strengthSpanWeight = c.strengthSpanWeight;
@@ -285,6 +298,8 @@ public record AnalysisConfig(
         public Builder maxActiveLevelsPerMarket(int v) { this.maxActiveLevelsPerMarket = v; return this; }
         public Builder levelExpiryCandles(int v) { this.levelExpiryCandles = v; return this; }
         public Builder enableRoleFlip(boolean v) { this.enableRoleFlip = v; return this; }
+        public Builder supersedeEnabled(boolean v) { this.supersedeEnabled = v; return this; }
+        public Builder supersedeMaxDistancePercent(double v) { this.supersedeMaxDistancePercent = v; return this; }
         public Builder strengthTouchWeight(double v) { this.strengthTouchWeight = v; return this; }
         public Builder strengthRejectionWeight(double v) { this.strengthRejectionWeight = v; return this; }
         public Builder strengthSpanWeight(double v) { this.strengthSpanWeight = v; return this; }
@@ -297,6 +312,7 @@ public record AnalysisConfig(
                     breakoutTolerancePercent, confirmationCandles, closeBeyondLevel, wickBreakAllowed,
                     minTouches, signalTrigger, minLevelStrength, emitSignalOnEveryTouchAfterMin,
                     maxActiveLevelsPerMarket, levelExpiryCandles, enableRoleFlip,
+                    supersedeEnabled, supersedeMaxDistancePercent,
                     strengthTouchWeight, strengthRejectionWeight, strengthSpanWeight);
         }
     }

@@ -2,11 +2,19 @@ import type { Candle, Level, Page, Signal } from './types'
 
 const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
-/** Drops empty filter values so the backend sees an absent parameter rather than a blank one. */
-function query(params: Record<string, string | number | undefined>): string {
+export type QueryValue = string | number | string[] | undefined
+
+/**
+ * Drops empty filter values so the backend sees an absent parameter rather than a blank one.
+ * A list becomes one comma-separated value, which the API treats as "any of these".
+ */
+function query(params: Record<string, QueryValue>): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== '' && value !== null) {
+    if (value === undefined || value === null || value === '') continue
+    if (Array.isArray(value)) {
+      if (value.length > 0) search.set(key, value.join(','))
+    } else {
       search.set(key, String(value))
     }
   }
@@ -30,12 +38,12 @@ async function get<T>(path: string): Promise<T> {
 }
 
 export const api = {
-  signals: (f: Record<string, string | number | undefined>) =>
+  signals: (f: Record<string, QueryValue>) =>
     get<Page<Signal>>(`/signals${query(f)}`),
 
   signal: (id: string) => get<Signal>(`/signals/${id}`),
 
-  levels: (f: Record<string, string | number | undefined>) =>
+  levels: (f: Record<string, QueryValue>) =>
     get<Page<Level>>(`/levels${query(f)}`),
 
   level: (id: string) => get<Level>(`/levels/${id}`),

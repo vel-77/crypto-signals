@@ -1,6 +1,6 @@
 export type LevelType = 'SUPPORT' | 'RESISTANCE'
-export type LevelStatus = 'ACTIVE' | 'BROKEN' | 'EXPIRED'
-export type SignalStatus = 'ACTIVE' | 'INVALIDATED' | 'EXPIRED'
+export type LevelStatus = 'ACTIVE' | 'SUPERSEDED' | 'BROKEN' | 'EXPIRED'
+export type SignalStatus = 'ACTIVE' | 'SUPERSEDED' | 'INVALIDATED' | 'EXPIRED'
 
 export interface Touch {
   id: number
@@ -45,6 +45,9 @@ export interface Level {
   lastTouchAt: string | null
   strategy: string
   configFingerprint: string
+  supersededBy?: string | null
+  supersededByPrice?: string | null
+  supersededAt?: string | null
   touches?: Touch[]
   breakout?: Breakout | null
 }
@@ -85,9 +88,12 @@ export interface Page<T> {
   totalPages: number
 }
 
+/** Every filter holds several values; an empty list means "all". */
 export interface Filters {
-  symbol: string
-  timeframe: string
-  type: string
-  status: string
+  symbols: string[]
+  timeframes: string[]
+  types: string[]
+  statuses: string[]
+  /** Exact touch counts such as "3", plus an open-ended bucket such as "8+". */
+  touches: string[]
 }

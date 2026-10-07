@@ -21,6 +21,9 @@ public class NotificationProperties {
     /** How often the retry sweeper looks for persisted-but-undelivered signals. */
     private Duration retryInterval = Duration.ofMinutes(1);
 
+    /** Time zone for timestamps in alert messages, e.g. "Asia/Yerevan". */
+    private String timezone = "UTC";
+
     private Telegram telegram = new Telegram();
 
     public static class Telegram {
@@ -54,5 +57,7 @@ public class NotificationProperties {
     public Duration getRetryInterval() { return retryInterval; }
     public void setRetryInterval(Duration v) { this.retryInterval = v; }
     public Telegram getTelegram() { return telegram; }
+    public String getTimezone() { return timezone; }
+    public void setTimezone(String v) { this.timezone = v; }
     public void setTelegram(Telegram v) { this.telegram = v; }
 }

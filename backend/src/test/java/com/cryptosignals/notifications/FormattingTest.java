@@ -90,6 +90,24 @@ class FormattingTest {
         }
 
         @Test
+        @DisplayName("times can be shown in a configured time zone, labelled with it")
+        void usesConfiguredTimeZone() {
+            TradingSignal signal = sampleSignal();
+            String utc = new SignalFormatter().format(signal);
+            String yerevan = new SignalFormatter(java.time.ZoneId.of("Asia/Yerevan")).format(signal);
+
+            assertThat(utc).contains(" UTC");
+            assertThat(yerevan).contains("Asia/Yerevan").doesNotContain(" UTC");
+            // Yerevan is UTC+4: the first touch is printed four hours later on the clock.
+            String utcFirst = PriceFormatter.timestamp(signal.touches().get(0).extremeTime());
+            String localFirst = PriceFormatter.timestamp(signal.touches().get(0).extremeTime(),
+                    java.time.ZoneId.of("Asia/Yerevan"));
+            assertThat(utc).contains(utcFirst);
+            assertThat(yerevan).contains(localFirst);
+            assertThat(localFirst).isNotEqualTo(utcFirst);
+        }
+
+        @Test
         @DisplayName("a historical signal says so, so nobody mistakes it for a live alert")
         void labelsHistoricalSignals() {
             assertThat(new SignalFormatter().format(sampleSignal().asHistorical(true)))

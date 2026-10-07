@@ -189,6 +189,31 @@ class PersistenceIT extends PostgresIntegrationTest {
     }
 
     @Test
+    @DisplayName("a superseded level and its signal are stored with who took over")
+    void persistsSupersededLevels() {
+        // Resistance at 100 300 forms first, then one at 100 000; price then rises through the lower
+        // one, without breaking it, until it is nearer the upper one.
+        runAndPersist(Candles.fromPath(TF, Candles.zigzag(99_300, 15,
+                100_300, 99_300, 100_300, 99_300, 100_300, 99_300,
+                99_000, 100_000, 99_000, 100_000, 99_000, 100_000, 99_000, 100_180, 99_700)));
+
+        PriceLevelEntity passed = levels.findAll().stream()
+                .filter(l -> l.getType() == LevelType.RESISTANCE
+                        && l.getPrice().doubleValue() == 100_000.0)
+                .findFirst().orElseThrow();
+
+        assertThat(passed.getStatus()).isEqualTo(LevelStatus.SUPERSEDED);
+        assertThat(passed.getSupersededBy()).isNotNull();
+        assertThat(levels.findById(passed.getSupersededBy())).isPresent()
+                .get().extracting(PriceLevelEntity::getStatus).isEqualTo(LevelStatus.ACTIVE);
+        assertThat(passed.getSupersededByPrice().doubleValue()).isEqualTo(100_300.0);
+        assertThat(passed.getSupersededAt()).isNotNull();
+        assertThat(signals.findAll()).filteredOn(s -> s.getLevelId().equals(passed.getId()))
+                .singleElement()
+                .extracting(SignalEntity::getStatus).isEqualTo(com.cryptosignals.domain.SignalStatus.SUPERSEDED);
+    }
+
+    @Test
     @DisplayName("undelivered signals are queued for retry and marked once delivered")
     void tracksNotificationDelivery() {
         runAndPersist(Candles.fromPath(TF, Candles.zigzag(99_000, 15,

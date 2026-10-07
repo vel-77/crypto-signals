@@ -71,6 +71,15 @@ public class PriceLevelEntity {
     @Column(name = "last_touch_at")
     private Instant lastTouchAt;
 
+    @Column(name = "superseded_by")
+    private UUID supersededBy;
+
+    @Column(name = "superseded_by_price", precision = 38, scale = 18)
+    private BigDecimal supersededByPrice;
+
+    @Column(name = "superseded_at")
+    private Instant supersededAt;
+
     @Column(nullable = false)
     private String strategy;
 
@@ -210,6 +219,13 @@ public class PriceLevelEntity {
     public void setLastTouchAt(Instant lastTouchAt) {
         this.lastTouchAt = lastTouchAt;
     }
+
+    public UUID getSupersededBy() { return supersededBy; }
+    public void setSupersededBy(UUID v) { this.supersededBy = v; }
+    public BigDecimal getSupersededByPrice() { return supersededByPrice; }
+    public void setSupersededByPrice(BigDecimal v) { this.supersededByPrice = v; }
+    public Instant getSupersededAt() { return supersededAt; }
+    public void setSupersededAt(Instant v) { this.supersededAt = v; }
 
     public String getStrategy() {
         return strategy;

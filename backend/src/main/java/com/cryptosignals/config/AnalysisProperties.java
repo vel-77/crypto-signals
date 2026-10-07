@@ -3,6 +3,7 @@ package com.cryptosignals.config;
 import com.cryptosignals.analysis.AnalysisConfig;
 import com.cryptosignals.domain.PriceAggregation;
 import com.cryptosignals.domain.SignalTrigger;
+import com.cryptosignals.domain.Timeframe;
 import com.cryptosignals.domain.ToleranceMode;
 import com.cryptosignals.domain.TouchMode;
 import jakarta.validation.constraints.Min;
@@ -11,6 +12,8 @@ import jakarta.validation.constraints.PositiveOrZero;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * External binding for every detection rule. Mirrors {@link AnalysisConfig} one-to-one so that no
@@ -57,13 +60,58 @@ public class AnalysisProperties {
     @PositiveOrZero private int levelExpiryCandles = 0;
     private boolean enableRoleFlip = false;
 
+    // --- relevance ("nearest level" rule)
+    private boolean supersedeEnabled = true;
+    /**
+     * Maximum gap between a passed level and the level that supersedes it, per timeframe, as
+     * {@code timeframe:percent} pairs. Wider timeframes move further per candle, so they allow a
+     * wider gap. Timeframes not listed use {@link #supersedeDefaultMaxDistancePercent}.
+     */
+    private String supersedeMaxDistancePercent = "15m:0.5,30m:0.6,1h:0.75,4h:1.5";
+    @PositiveOrZero private double supersedeDefaultMaxDistancePercent = 0.5;
+
     // --- strength weights
     @PositiveOrZero private double strengthTouchWeight = 0.5;
     @PositiveOrZero private double strengthRejectionWeight = 0.3;
     @PositiveOrZero private double strengthSpanWeight = 0.2;
 
-    /** Builds the immutable engine configuration, applying its stricter cross-field validation. */
+    /** Engine configuration for one timeframe — the supersede distance depends on it. */
+    public AnalysisConfig toAnalysisConfig(Timeframe timeframe) {
+        return builder()
+                .supersedeMaxDistancePercent(supersedeDistanceFor(timeframe))
+                .build();
+    }
+
+    /** Engine configuration using the default supersede distance. */
     public AnalysisConfig toAnalysisConfig() {
+        return builder().build();
+    }
+
+    /** The supersede distance configured for a timeframe, or the default if it is not listed. */
+    public double supersedeDistanceFor(Timeframe timeframe) {
+        Double configured = getSupersedeMaxDistanceByTimeframe().get(timeframe.code());
+        return configured != null ? configured : supersedeDefaultMaxDistancePercent;
+    }
+
+    /** Parsed form of {@link #supersedeMaxDistancePercent}, also shown on the config endpoint. */
+    public Map<String, Double> getSupersedeMaxDistanceByTimeframe() {
+        Map<String, Double> parsed = new LinkedHashMap<>();
+        if (supersedeMaxDistancePercent == null || supersedeMaxDistancePercent.isBlank()) {
+            return parsed;
+        }
+        for (String pair : supersedeMaxDistancePercent.split(",")) {
+            String[] parts = pair.trim().split(":");
+            if (parts.length != 2) {
+                throw new IllegalArgumentException("supersede-max-distance-percent: expected "
+                        + "'timeframe:percent' pairs such as '15m:0.5,1h:0.75', got '" + pair.trim() + "'");
+            }
+            parsed.put(Timeframe.fromCode(parts[0].trim()).code(), Double.parseDouble(parts[1].trim()));
+        }
+        return parsed;
+    }
+
+    /** Builds the immutable engine configuration, applying its stricter cross-field validation. */
+    private AnalysisConfig.Builder builder() {
         return AnalysisConfig.builder()
                 .swingLeftBars(swingLeftBars)
                 .swingRightBars(swingRightBars)
@@ -88,10 +136,11 @@ public class AnalysisProperties {
                 .maxActiveLevelsPerMarket(maxActiveLevelsPerMarket)
                 .levelExpiryCandles(levelExpiryCandles)
                 .enableRoleFlip(enableRoleFlip)
+                .supersedeEnabled(supersedeEnabled)
+                .supersedeMaxDistancePercent(supersedeDefaultMaxDistancePercent)
                 .strengthTouchWeight(strengthTouchWeight)
                 .strengthRejectionWeight(strengthRejectionWeight)
-                .strengthSpanWeight(strengthSpanWeight)
-                .build();
+                .strengthSpanWeight(strengthSpanWeight);
     }
 
     public int getSwingLeftBars() { return swingLeftBars; }
@@ -139,6 +188,12 @@ public class AnalysisProperties {
     public int getLevelExpiryCandles() { return levelExpiryCandles; }
     public void setLevelExpiryCandles(int v) { this.levelExpiryCandles = v; }
     public boolean isEnableRoleFlip() { return enableRoleFlip; }
+    public boolean isSupersedeEnabled() { return supersedeEnabled; }
+    public void setSupersedeEnabled(boolean v) { this.supersedeEnabled = v; }
+    public String getSupersedeMaxDistancePercent() { return supersedeMaxDistancePercent; }
+    public void setSupersedeMaxDistancePercent(String v) { this.supersedeMaxDistancePercent = v; }
+    public double getSupersedeDefaultMaxDistancePercent() { return supersedeDefaultMaxDistancePercent; }
+    public void setSupersedeDefaultMaxDistancePercent(double v) { this.supersedeDefaultMaxDistancePercent = v; }
     public void setEnableRoleFlip(boolean v) { this.enableRoleFlip = v; }
     public double getStrengthTouchWeight() { return strengthTouchWeight; }
     public void setStrengthTouchWeight(double v) { this.strengthTouchWeight = v; }

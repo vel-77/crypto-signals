@@ -11,6 +11,9 @@ All timestamps are ISO-8601 UTC. Prices are JSON numbers with full stored precis
 ## Conventions
 
 **Filters are optional and combine.** An omitted or empty parameter contributes no constraint.
+List filters take several values, comma-separated or repeated (`symbol=BTCUSDT,SOLUSDT` or
+`symbol=BTCUSDT&symbol=SOLUSDT`). Values **within** one filter are OR-ed; **different** filters are
+AND-ed.
 
 **Listings are paged** and return:
 
@@ -41,10 +44,12 @@ Paging and sorting use standard Spring Data parameters: `page`, `size`, `sort=fi
 
 | Parameter | Values |
 |---|---|
-| `symbol` | e.g. `BTCUSDT` |
-| `timeframe` | e.g. `5m` |
-| `type` | `SUPPORT` \| `RESISTANCE` |
-| `status` | `ACTIVE` \| `INVALIDATED` \| `EXPIRED` |
+| `symbol` | one or more, e.g. `BTCUSDT,SOLUSDT` |
+| `timeframe` | one or more, e.g. `15m,1h` |
+| `type` | `SUPPORT` and/or `RESISTANCE` |
+| `status` | one or more of `ACTIVE`, `SUPERSEDED`, `INVALIDATED`, `EXPIRED` |
+| `touches` | exact touch counts, e.g. `4,5` |
+| `touchesAtLeast` | also include anything with at least this many touches (OR-ed with `touches`) |
 | `historical` | `true` \| `false` — found during replay rather than live |
 | `from`, `to` | ISO instants, filter on `detectedAt` |
 
@@ -52,7 +57,7 @@ Default sort is `detectedAt` descending. Touches are omitted from list responses
 per row; fetch a single signal for those.
 
 ```bash
-curl 'http://localhost:8080/api/signals?symbol=BTCUSDT&timeframe=5m&status=ACTIVE'
+curl 'http://localhost:8080/api/signals?symbol=BTCUSDT,SOLUSDT&timeframe=15m&status=ACTIVE,SUPERSEDED&touches=4,5'
 ```
 
 ### `GET /api/signals/{id}`
@@ -90,7 +95,8 @@ Same filters as signals, plus:
 
 | Parameter | Values |
 |---|---|
-| `status` | `ACTIVE` \| `BROKEN` \| `EXPIRED` |
+| `status` | one or more of `ACTIVE`, `SUPERSEDED`, `BROKEN`, `EXPIRED` |
+| `touches`, `touchesAtLeast` | as for signals |
 | `minTouches` | integer — e.g. `3` for levels that reached the threshold |
 | `minStrength` | 0..1 quality floor |
 
@@ -103,7 +109,8 @@ curl 'http://localhost:8080/api/levels?symbol=BTCUSDT&timeframe=1h&type=RESISTAN
 
 ### `GET /api/levels/{id}`
 
-One level with its touches and its breakout, if it has one.
+One level with its touches and its breakout, if it has one. A superseded level also carries
+`supersededBy` (the id of the level that took over), `supersededByPrice` and `supersededAt`.
 
 ### `GET /api/levels/{id}/touches`
 

@@ -95,6 +95,46 @@ class ApiIT extends PostgresIntegrationTest {
     }
 
     @Test
+    @DisplayName("every list filter accepts several values, OR-ed within a filter")
+    void multiValueFilters() throws Exception {
+        expectSignals(1, "symbol", "BTCUSDT,ETHUSDT");
+        expectSignals(0, "symbol", "ETHUSDT,SOLUSDT");
+        expectSignals(1, "timeframe", "5m,1h");
+        expectSignals(1, "type", "SUPPORT,RESISTANCE");
+        expectSignals(1, "status", "ACTIVE,SUPERSEDED");
+        expectSignals(0, "status", "SUPERSEDED,INVALIDATED");
+
+        // Repeated parameters work as well as comma-separated ones.
+        mvc.perform(get("/api/signals").param("symbol", "ETHUSDT").param("symbol", "BTCUSDT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", org.hamcrest.Matchers.hasSize(1)));
+    }
+
+    @Test
+    @DisplayName("touches filter: exact counts, an at-least bucket, or both")
+    void touchFilter() throws Exception {
+        expectSignals(1, "touches", "3");
+        expectSignals(1, "touches", "3,4,5");
+        expectSignals(0, "touches", "4,5");
+        expectSignals(1, "touchesAtLeast", "3");
+        expectSignals(0, "touchesAtLeast", "4");
+
+        // Exact counts and the at-least bucket are alternatives: 4 OR 3-and-above.
+        mvc.perform(get("/api/signals").param("touches", "4").param("touchesAtLeast", "3"))
+                .andExpect(jsonPath("$.items", org.hamcrest.Matchers.hasSize(1)));
+
+        mvc.perform(get("/api/levels").param("touches", "3").param("status", "ACTIVE,SUPERSEDED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", org.hamcrest.Matchers.hasSize(1)));
+    }
+
+    private void expectSignals(int count, String param, String value) throws Exception {
+        mvc.perform(get("/api/signals").param(param, value))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", org.hamcrest.Matchers.hasSize(count)));
+    }
+
+    @Test
     @DisplayName("GET /api/signals/{id} includes every touch")
     void signalDetail() throws Exception {
         mvc.perform(get("/api/signals/{id}", signalId))
@@ -150,6 +190,9 @@ class ApiIT extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$.analysis.minTouches").value(3))
                 .andExpect(jsonPath("$.analysis.touchTolerancePercent").value(0.1))
                 .andExpect(jsonPath("$.analysis.emitSignalOnEveryTouchAfterMin").value(true))
+                .andExpect(jsonPath("$.analysis.supersedeEnabled").value(true))
+                .andExpect(jsonPath("$.analysis.supersedeMaxDistanceByTimeframe['15m']").value(0.5))
+                .andExpect(jsonPath("$.analysis.supersedeMaxDistanceByTimeframe['1h']").value(0.75))
                 .andExpect(jsonPath("$.configFingerprint").exists())
                 .andExpect(jsonPath("$.detectionStrategy").value(
                         org.hamcrest.Matchers.containsString("swing-cluster")))

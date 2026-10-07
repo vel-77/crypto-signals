@@ -1,8 +1,10 @@
 import type { Touch } from '../types'
+import { useTimeZone, zoneLabel } from '../timezone'
 import { duration, percent, price, timestamp } from './format'
 
 /** The evidence behind a signal: when each separate test happened and how far it was rejected. */
 export function TouchTable({ touches }: { touches: Touch[] }) {
+  const { timeZone } = useTimeZone()
   if (touches.length === 0) {
     return <div className="empty">No touches recorded.</div>
   }
@@ -11,7 +13,7 @@ export function TouchTable({ touches }: { touches: Touch[] }) {
       <thead>
         <tr>
           <th>#</th>
-          <th>Time (UTC)</th>
+          <th>Time ({zoneLabel(timeZone)})</th>
           <th>Price</th>
           <th>Distance</th>
           <th>Gap</th>
@@ -24,7 +26,7 @@ export function TouchTable({ touches }: { touches: Touch[] }) {
         {touches.map((touch) => (
           <tr key={touch.touchNumber} style={{ cursor: 'default' }}>
             <td className="num">{touch.touchNumber}</td>
-            <td className="num">{timestamp(touch.touchAt)}</td>
+            <td className="num">{timestamp(touch.touchAt, timeZone)}</td>
             <td className="num">{price(touch.price)}</td>
             <td className="num dim">{percent(touch.distancePercent, 3)}</td>
             <td className="num dim">

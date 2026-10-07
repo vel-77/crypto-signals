@@ -69,6 +69,17 @@ public final class LevelAnalysisEngine {
     private final List<TradingSignal> signals = new ArrayList<>();
     private final List<BreakoutEvent> breakouts = new ArrayList<>();
 
+    /**
+     * Touch events seen on the current candle that may raise a signal. Emission waits until the
+     * whole candle has been processed: a candle that touches a level and, by its close, has already
+     * moved past it towards a nearer level is a pass-through, not a test, and must not raise a
+     * signal that is superseded the instant it appears.
+     */
+    private record PendingSignal(LevelState level, Candle candle, int index, TouchEvent event) {
+    }
+
+    private final List<PendingSignal> pendingSignals = new ArrayList<>();
+
     private long lastCandleOpenTime = Long.MIN_VALUE;
     private long firstCandleOpenTime = -1;
     private int candlesProcessed;
@@ -162,10 +173,17 @@ public final class LevelAnalysisEngine {
             LevelState level = levels.get(i);
             if (level.isActive()) {
                 advanceLevel(level, candle, index, newSignals, newBreakouts, invalidated, changed);
+            } else if (level.status() == LevelStatus.SUPERSEDED) {
+                trackLateBreakout(level, candle, index, newBreakouts, changed);
             }
         }
 
         detectionStrategy.onCandle(new Context(index, newSignals, newBreakouts, invalidated, changed));
+        supersedeLevels(candle, index, invalidated, changed);
+        for (PendingSignal pending : pendingSignals) {
+            maybeEmitSignal(pending.level(), pending.candle(), pending.index(), pending.event(), newSignals);
+        }
+        pendingSignals.clear();
 
         expireLevels(index, changed);
         pruneLevels();
@@ -193,7 +211,7 @@ public final class LevelAnalysisEngine {
             level.markBroken(breakout);
             breakouts.add(breakout);
             newBreakouts.add(breakout);
-            invalidateSignalsOf(level.id(), invalidated);
+            changeSignalsOf(level.id(), SignalStatus.INVALIDATED, invalidated);
             trackChanged(changed, level);
             if (config.enableRoleFlip()) {
                 createFlippedLevel(level, candle, index, changed);
@@ -206,7 +224,9 @@ public final class LevelAnalysisEngine {
             level.strength(strengthCalculator.strength(level, config));
             trackChanged(changed, level);
         }
-        maybeEmitSignal(level, candle, index, event, newSignals);
+        if (event == TouchEvent.OPENED || event == TouchEvent.CLOSED) {
+            pendingSignals.add(new PendingSignal(level, candle, index, event));
+        }
     }
 
     private void maybeEmitSignal(LevelState level, Candle candle, int index, TouchEvent event,
@@ -246,16 +266,114 @@ public final class LevelAnalysisEngine {
         out.add(signal);
     }
 
-    private void invalidateSignalsOf(String levelId, List<TradingSignal> invalidated) {
+    /** Moves every still-active signal of a level to a new status, reporting each change. */
+    private void changeSignalsOf(String levelId, SignalStatus newStatus, List<TradingSignal> out) {
         for (int i = 0; i < signals.size(); i++) {
             TradingSignal signal = signals.get(i);
             if (signal.levelId().equals(levelId) && signal.status() == SignalStatus.ACTIVE) {
-                TradingSignal updated = signal.withStatus(SignalStatus.INVALIDATED);
+                TradingSignal updated = signal.withStatus(newStatus);
                 signals.set(i, updated);
-                invalidated.add(updated);
+                out.add(updated);
             }
         }
     }
+
+    /**
+     * Retires levels that a nearby, stronger level has taken over from (the "nearest level" rule).
+     *
+     * <p>For a resistance A, on the close of each candle:
+     * <ol>
+     *   <li>price has moved past it: {@code close > A.price};</li>
+     *   <li>another active resistance B sits above it, within {@code supersedeMaxDistancePercent}
+     *       of A's price;</li>
+     *   <li>B has itself reached the touch threshold, so a weak, half-formed level can never retire
+     *       an established one;</li>
+     *   <li>B is now closer to price than A is.</li>
+     * </ol>
+     * Support is the mirror image. A is then SUPERSEDED, and any signal it raised changes status
+     * with it.
+     *
+     * <p>Requiring price to have actually passed A matters: two nearby levels both remain active
+     * while price is below them, because A is still the first obstacle. Only once price is through
+     * A does B become the level that matters.
+     *
+     * <p>Every candidate is judged against the set of levels as it stood before this pass, so the
+     * outcome does not depend on the order in which levels happen to be visited.
+     */
+    private void supersedeLevels(Candle candle, int index, List<TradingSignal> statusChanged,
+                                 List<LevelState> changed) {
+        if (!config.supersedeEnabled()) {
+            return;
+        }
+        double close = candle.close();
+        List<LevelState> active = new ArrayList<>();
+        for (LevelState level : levels) {
+            if (level.isActive()) {
+                active.add(level);
+            }
+        }
+
+        List<LevelState[]> retirements = new ArrayList<>();
+        for (LevelState passed : active) {
+            boolean resistance = passed.type() == LevelType.RESISTANCE;
+            boolean pricePastIt = resistance ? close > passed.price() : close < passed.price();
+            if (!pricePastIt) {
+                continue;
+            }
+            double maxGap = passed.price() * config.supersedeMaxDistancePercent() / 100.0;
+            double distanceToPassed = Math.abs(close - passed.price());
+
+            LevelState successor = null;
+            double successorDistance = Double.MAX_VALUE;
+            for (LevelState candidate : active) {
+                if (candidate == passed || candidate.type() != passed.type()
+                        || candidate.touchCount() < config.minTouches()) {
+                    continue;
+                }
+                double gap = resistance
+                        ? candidate.price() - passed.price()
+                        : passed.price() - candidate.price();
+                if (gap <= 0 || gap > maxGap) {
+                    continue;
+                }
+                double distance = Math.abs(candidate.price() - close);
+                if (distance < distanceToPassed && distance < successorDistance) {
+                    successor = candidate;
+                    successorDistance = distance;
+                }
+            }
+            if (successor != null) {
+                retirements.add(new LevelState[]{passed, successor});
+            }
+        }
+
+        for (LevelState[] pair : retirements) {
+            LevelState passed = pair[0];
+            passed.markSuperseded(pair[1], candle.openTime());
+            changeSignalsOf(passed.id(), SignalStatus.SUPERSEDED, statusChanged);
+            trackChanged(changed, passed);
+        }
+    }
+
+    /**
+     * Keeps watching a superseded level for a breakout so its history is complete. The level no
+     * longer counts touches or signals; only the breakout is recorded, and its status is kept.
+     */
+    private void trackLateBreakout(LevelState level, Candle candle, int index,
+                                   List<BreakoutEvent> newBreakouts, List<LevelState> changed) {
+        if (level.breakout() != null || level.processedCursor() >= index) {
+            return;
+        }
+        level.processedCursor(index);
+        BreakoutEvent breakout = breakoutDetector.detect(level, candle, index, config);
+        if (breakout != null) {
+            level.recordLateBreakout(breakout);
+            breakouts.add(breakout);
+            newBreakouts.add(breakout);
+            trackChanged(changed, level);
+        }
+    }
+
 
     /**
      * Optional "broken resistance becomes support" behaviour. Off by default: it is a trading

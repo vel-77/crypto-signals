@@ -233,6 +233,42 @@ level raises a 3-touch signal, then a 4-touch signal, a 5-touch signal and so on
 **The application ships with this switched on** (`SIGNAL_ON_EVERY_TOUCH=true`); the engine's own
 default, used by the tests above, is off. Resting on the level between touches still never re-emits.
 
+### Superseded levels — the "nearest level" rule
+
+When two levels of the same role sit close together, only the one nearest to price matters. At the
+close of every candle, an active level **A** becomes `SUPERSEDED` when all of these hold:
+
+1. **price has passed A** — `close > A` for resistance, `close < A` for support;
+2. another active level **B** of the same role lies beyond A, no more than
+   `supersedeMaxDistancePercent` of A's price away (per timeframe — default 15m 0.5%, 30m 0.6%,
+   1h 0.75%, 4h 1.5%);
+3. **B is established** — it has at least `minTouches` touches, so a half-formed level can never
+   retire an established one;
+4. **B is nearer to price** than A: `|B − close| < |close − A|`.
+
+Every candidate is judged against the set of levels as it stood before the pass, so the outcome
+does not depend on visiting order.
+
+Worked example (SOL): resistances at 121.59 and 122.0075, 0.34% apart. At 121.20 both stay
+active — 121.59 is still the first obstacle. At 121.80 price is past 121.59 and nearer 122.0075,
+so 121.59 is superseded and 122.0075 stays active.
+
+Consequences:
+
+- A superseded level stops counting touches and signalling; its still-active signals become
+  `SUPERSEDED` (distinct from `INVALIDATED`, which means the level itself broke).
+- It is still watched for a breakout. If one confirms, the breakout is recorded, but the status
+  stays `SUPERSEDED` — the level had already been retired.
+- It is excluded from swing matching, like a broken level: a new structure at that price starts a
+  new level.
+- **Pass-through suppression.** Signals are emitted only after the whole candle has been processed.
+  A candle that touches a level and, by its close, has already moved past it towards a nearer level
+  went through the level rather than testing it, so it raises no signal — mirroring how a breakout
+  on the same candle already suppresses one.
+
+Switch the rule off with `SUPERSEDE_ENABLED=false`; tune the gaps with
+`SUPERSEDE_MAX_DISTANCE=15m:0.5,30m:0.6,1h:0.75,4h:1.5`.
+
 ---
 
 ## 10. Strength

@@ -1,33 +1,28 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import type { Candle, Level } from '../types'
-import { LevelChart } from './LevelChart'
+import type { Level } from '../types'
+import { useTimeZone } from '../timezone'
+import { LiveChart } from './LiveChart'
+import { LevelFate, SupersededNote } from './LevelFacts'
 import { TouchTable } from './TouchTable'
 import { price, timestamp } from './format'
 
 export function LevelDetail({ level }: { level: Level }) {
+  const { timeZone } = useTimeZone()
   const [detail, setDetail] = useState<Level | null>(null)
-  const [candles, setCandles] = useState<Candle[]>([])
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     setError(null)
     setDetail(null)
-    setCandles([])
-
-    Promise.all([api.level(level.id), api.candles(level.symbol, level.timeframe, 500)])
-      .then(([l, c]) => {
-        if (cancelled) return
-        setDetail(l)
-        setCandles(c)
-      })
+    api.level(level.id)
+      .then((l) => !cancelled && setDetail(l))
       .catch((e: Error) => !cancelled && setError(e.message))
-
     return () => {
       cancelled = true
     }
-  }, [level.id, level.symbol, level.timeframe])
+  }, [level.id])
 
   return (
     <div className="detail-pane">
@@ -56,25 +51,23 @@ export function LevelDetail({ level }: { level: Level }) {
           </div>
           <div>
             <div className="stat-label">First seen</div>
-            <div className="stat-value">{timestamp(level.firstSeenAt)}</div>
+            <div className="stat-value">{timestamp(level.firstSeenAt, timeZone)}</div>
           </div>
-          <div>
-            <div className="stat-label">Last touch</div>
-            <div className="stat-value">{timestamp(level.lastTouchAt)}</div>
-          </div>
+          <LevelFate level={detail} />
         </div>
       </div>
 
       {error && <div className="error">{error}</div>}
+      <SupersededNote level={detail} />
 
-      {candles.length > 0 && (
-        <LevelChart
-          candles={candles}
-          levelPrice={Number(level.price)}
-          zoneLower={Number(level.zoneLower)}
-          zoneUpper={Number(level.zoneUpper)}
-          touches={detail?.touches ?? []}
-          type={level.type}
+      {detail && (
+        <LiveChart
+          symbol={level.symbol}
+          timeframe={level.timeframe}
+          level={{
+            price: Number(level.price), zoneLower: Number(level.zoneLower), zoneUpper: Number(level.zoneUpper),
+            type: level.type, touches: detail.touches ?? [],
+          }}
         />
       )}
 

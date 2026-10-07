@@ -66,12 +66,12 @@ public class BacktestCommandLineRunner implements ApplicationRunner {
         }
         int exitCode = 0;
         try {
+            Timeframe timeframe = Timeframe.fromCode(option(args, "timeframe", "15m"));
             BacktestRequest request = new BacktestRequest(
-                    new MarketKey(required(args, "symbol"),
-                            Timeframe.fromCode(option(args, "timeframe", "5m"))),
+                    new MarketKey(required(args, "symbol"), timeframe),
                     parseInstant(required(args, "from")),
                     parseInstant(option(args, "to", Instant.now().toString())),
-                    analysisProperties.toAnalysisConfig(),
+                    analysisProperties.toAnalysisConfig(timeframe),
                     args.containsOption("fetch"));
 
             BacktestResult result = backtestService.run(request);

@@ -63,6 +63,11 @@ public final class LevelState {
     private int firstBreachIndex = -1;
     private BreakoutEvent breakout;
 
+    // ---- supersede state -----------------------------------------------------------------
+    private String supersededBy;
+    private double supersededByPrice = Double.NaN;
+    private long supersededAtTime = -1;
+
     // ---- bookkeeping ---------------------------------------------------------------------
     private int lastSignalledTouchCount;
     private int processedCursor = Integer.MIN_VALUE;
@@ -352,6 +357,34 @@ public final class LevelState {
         this.status = LevelStatus.EXPIRED;
     }
 
+    /**
+     * Retires the level because a closer level of the same role has taken over. Any touch still in
+     * progress is closed as it stands; no further touches are counted.
+     */
+    public void markSuperseded(LevelState by, long atTime) {
+        this.status = LevelStatus.SUPERSEDED;
+        this.supersededBy = by.id();
+        this.supersededByPrice = by.price();
+        this.supersededAtTime = atTime;
+        if (hasOpenTouch()) {
+            touches.set(touches.size() - 1, buildClosedTouch());
+            this.openStartIndex = -1;
+        }
+        this.phase = TouchPhase.ARMED;
+    }
+
+    /**
+     * Records a breakout of a level that was already superseded. The status stays SUPERSEDED — the
+     * level had been retired before it broke — but the breakout is kept so its history is complete.
+     */
+    public void recordLateBreakout(BreakoutEvent event) {
+        this.breakout = event;
+    }
+
+    public String supersededBy() {
+        return supersededBy;
+    }
+
     public BreakoutEvent breakout() {
         return breakout;
     }
@@ -381,6 +414,6 @@ public final class LevelState {
     public DetectedLevel snapshot() {
         return new DetectedLevel(id, market, type, price, zoneLower, zoneUpper, strength, status,
                 swingPrices.size(), createdAtIndex, createdAtTime, lastTouchIndex, lastTouchTime,
-                List.copyOf(touches), breakout);
+                List.copyOf(touches), breakout, supersededBy, supersededByPrice, supersededAtTime);
     }
 }

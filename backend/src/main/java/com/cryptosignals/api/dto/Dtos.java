@@ -87,6 +87,9 @@ public final class Dtos {
             Instant lastTouchAt,
             String strategy,
             String configFingerprint,
+            UUID supersededBy,
+            BigDecimal supersededByPrice,
+            Instant supersededAt,
             List<TouchDto> touches,
             BreakoutDto breakout) {
 
@@ -99,7 +102,8 @@ public final class Dtos {
                     entity.getType(), entity.getPrice(), entity.getZoneLower(), entity.getZoneUpper(),
                     entity.getStrength(), entity.getStatus(), entity.getSwingCount(),
                     entity.getTouchCount(), entity.getFirstSeenAt(), entity.getLastTouchAt(),
-                    entity.getStrategy(), entity.getConfigFingerprint(), touches, breakout);
+                    entity.getStrategy(), entity.getConfigFingerprint(), entity.getSupersededBy(),
+                    entity.getSupersededByPrice(), entity.getSupersededAt(), touches, breakout);
         }
     }
 

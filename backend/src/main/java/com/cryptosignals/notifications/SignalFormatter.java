@@ -15,6 +15,22 @@ import org.springframework.stereotype.Component;
 @Component
 public class SignalFormatter {
 
+    private final java.time.ZoneId zone;
+
+    /** UTC, as used by tests and anything constructed outside Spring. */
+    public SignalFormatter() {
+        this(java.time.ZoneOffset.UTC);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public SignalFormatter(com.cryptosignals.config.NotificationProperties properties) {
+        this(java.time.ZoneId.of(properties.getTimezone()));
+    }
+
+    public SignalFormatter(java.time.ZoneId zone) {
+        this.zone = zone;
+    }
+
     public String format(TradingSignal signal) {
         StringBuilder out = new StringBuilder(512);
 
@@ -29,7 +45,7 @@ public class SignalFormatter {
         out.append("Touches:\n");
         for (Touch touch : signal.touches()) {
             out.append(touch.touchNumber()).append(". ")
-                    .append(PriceFormatter.timestamp(touch.extremeTime()))
+                    .append(PriceFormatter.timestamp(touch.extremeTime(), zone))
                     .append(" @ ").append(PriceFormatter.price(touch.extremePrice()))
                     .append('\n');
         }
@@ -38,11 +54,16 @@ public class SignalFormatter {
         out.append("Strength: ").append(String.format(java.util.Locale.ROOT, "%.2f", signal.strength()))
                 .append("\n\n");
         out.append("Signal generated:\n")
-                .append(PriceFormatter.timestamp(signal.detectedAtTime())).append(" UTC");
+                .append(PriceFormatter.timestamp(signal.detectedAtTime(), zone)).append(' ')
+                .append(zoneLabel());
 
         if (signal.historical()) {
             out.append("\n\n(historical — found while replaying past candles)");
         }
         return out.toString();
+    }
+
+    private String zoneLabel() {
+        return zone.normalized().equals(java.time.ZoneOffset.UTC) ? "UTC" : zone.getId();
     }
 }

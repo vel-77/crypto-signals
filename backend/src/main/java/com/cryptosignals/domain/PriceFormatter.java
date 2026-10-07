@@ -57,6 +57,11 @@ public final class PriceFormatter {
         return TIMESTAMP.format(Instant.ofEpochMilli(epochMillis));
     }
 
+    /** Minute precision in the given zone. */
+    public static String timestamp(long epochMillis, java.time.ZoneId zone) {
+        return TIMESTAMP.withZone(zone).format(Instant.ofEpochMilli(epochMillis));
+    }
+
     public static String timestamp(Instant instant) {
         return TIMESTAMP.format(instant);
     }

@@ -81,9 +81,9 @@ public class AnalysisResultStore {
         for (TradingSignal signal : update.newSignals()) {
             saveSignal(market, signal);
         }
-        for (TradingSignal invalidated : update.invalidatedSignals()) {
-            signals.findById(UUID.fromString(invalidated.id())).ifPresent(entity -> {
-                entity.setStatus(invalidated.status());
+        for (TradingSignal changed : update.statusChangedSignals()) {
+            signals.findById(UUID.fromString(changed.id())).ifPresent(entity -> {
+                entity.setStatus(changed.status());
                 signals.save(entity);
             });
         }
@@ -107,6 +107,9 @@ public class AnalysisResultStore {
         entity.setCreatedAtIndex(level.createdAtIndex());
         entity.setFirstSeenAt(Instant.ofEpochMilli(level.createdAtTime()));
         entity.setLastTouchAt(level.lastTouchTime() > 0 ? Instant.ofEpochMilli(level.lastTouchTime()) : null);
+        entity.setSupersededBy(level.supersededBy() == null ? null : UUID.fromString(level.supersededBy()));
+        entity.setSupersededByPrice(Double.isNaN(level.supersededByPrice()) ? null : decimal(level.supersededByPrice()));
+        entity.setSupersededAt(level.supersededAtTime() > 0 ? Instant.ofEpochMilli(level.supersededAtTime()) : null);
         entity.setStrategy(strategy);
         entity.setConfigFingerprint(fingerprint);
         levels.save(entity);

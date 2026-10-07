@@ -136,6 +136,12 @@ crypto-signals:
     level-expiry-candles: 0         # 0 disables ageing out
     enable-role-flip: false         # broken resistance immediately becomes support
 
+    # --- "nearest level" rule: retire a level once price is past it and a stronger level just
+    #     beyond it is nearer to price. Gap allowed between the two, per timeframe:
+    supersede-enabled: true
+    supersede-max-distance-percent: "15m:0.5,30m:0.6,1h:0.75,4h:1.5"
+    supersede-default-max-distance-percent: 0.5   # timeframes not listed above
+
     # --- strength scoring weights
     strength-touch-weight: 0.5
     strength-rejection-weight: 0.3
@@ -148,6 +154,7 @@ crypto-signals:
     notify-historical: false        # do not replay a year of old signals into the chat on startup
     max-signal-age: 1h              # never deliver a signal older than this; 0 disables the check
     retry-interval: 1m
+    timezone: ${NOTIFICATIONS_TIMEZONE:UTC}   # times in Telegram messages, e.g. Asia/Yerevan
     telegram:
       enabled: ${TELEGRAM_ENABLED:false}
       bot-token: ${TELEGRAM_BOT_TOKEN:}

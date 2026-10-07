@@ -45,10 +45,12 @@ public class LevelController {
     @GetMapping
     @Operation(summary = "List discovered levels")
     public Dtos.PageDto<Dtos.LevelDto> list(
-            @RequestParam(required = false) String symbol,
-            @RequestParam(required = false) String timeframe,
-            @RequestParam(required = false) LevelType type,
-            @Parameter(description = "ACTIVE, BROKEN or EXPIRED") @RequestParam(required = false) LevelStatus status,
+            @Parameter(description = "one or more, e.g. BTCUSDT,SOLUSDT") @RequestParam(required = false) List<String> symbol,
+            @Parameter(description = "one or more, e.g. 15m,1h") @RequestParam(required = false) List<String> timeframe,
+            @Parameter(description = "SUPPORT and/or RESISTANCE") @RequestParam(required = false) List<LevelType> type,
+            @Parameter(description = "one or more of ACTIVE, SUPERSEDED, BROKEN, EXPIRED") @RequestParam(required = false) List<LevelStatus> status,
+            @Parameter(description = "exact touch counts, e.g. 3,4") @RequestParam(required = false) List<Integer> touches,
+            @Parameter(description = "also include levels with at least this many touches") @RequestParam(required = false) Integer touchesAtLeast,
             @Parameter(description = "only levels with at least this many touches") @RequestParam(required = false) Integer minTouches,
             @Parameter(description = "0..1 quality floor") @RequestParam(required = false) Double minStrength,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
@@ -56,7 +58,9 @@ public class LevelController {
             @PageableDefault(size = 50, sort = "firstSeenAt", direction = Sort.Direction.DESC) Pageable pageable) {
 
         Page<PriceLevelEntity> page = levels.findAll(QuerySpecifications.levels(
-                symbol, timeframe, type, status, from, to, minTouches, minStrength), pageable);
+                symbol, timeframe, type, status,
+                new QuerySpecifications.TouchFilter(touches, touchesAtLeast),
+                from, to, minTouches, minStrength), pageable);
         return Dtos.PageDto.of(page.map(Dtos.LevelDto::from));
     }
 

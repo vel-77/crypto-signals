@@ -72,8 +72,9 @@ public class MarketAnalysisService {
         this.exchange = exchange;
     }
 
-    public AnalysisConfig currentConfig() {
-        return analysisProperties.toAnalysisConfig();
+    /** The rules for one market; the supersede distance depends on its timeframe. */
+    public AnalysisConfig configFor(MarketKey key) {
+        return analysisProperties.toAnalysisConfig(key.timeframe());
     }
 
     /** Creates (or returns) the engine for a market, registering the market row if new. */
@@ -82,9 +83,11 @@ public class MarketAnalysisService {
             MarketEntity market = store.resolveMarket(exchangeProperties.getName(), k);
             // Live engines drop completed levels once reported: those rows already live in the
             // database, and holding them forever would make memory grow without bound.
-            var engine = engineFactory.create(k, currentConfig(), false);
-            log.info("Initialised engine for {} (strategy: {}, config: {})",
-                    k, engineFactory.detectionStrategyName(), currentConfig().fingerprint());
+            AnalysisConfig config = configFor(k);
+            var engine = engineFactory.create(k, config, false);
+            log.info("Initialised engine for {} (strategy: {}, config: {}, supersede distance: {}%)",
+                    k, engineFactory.detectionStrategyName(), config.fingerprint(),
+                    config.supersedeMaxDistancePercent());
             return new MarketEngine(k, market, engine);
         });
     }
@@ -231,7 +234,7 @@ public class MarketAnalysisService {
 
     private void persist(MarketEngine marketEngine, EngineUpdate update) {
         store.apply(marketEngine.market(), update,
-                engineFactory.detectionStrategyName(), currentConfig().fingerprint());
+                engineFactory.detectionStrategyName(), marketEngine.unsafeEngine().config().fingerprint());
     }
 
     public Optional<MarketEngine> engine(MarketKey key) {

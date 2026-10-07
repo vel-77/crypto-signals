@@ -1,43 +1,35 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import type { Candle, Level, Signal } from '../types'
-import { LevelChart } from './LevelChart'
+import type { Level, Signal } from '../types'
+import { useTimeZone } from '../timezone'
+import { LiveChart } from './LiveChart'
+import { LevelFate, SupersededNote } from './LevelFacts'
 import { TouchTable } from './TouchTable'
 import { price, timestamp } from './format'
 
-/**
- * Everything behind one signal: the chart with the level drawn on it, the level's own state
- * (including a breakout if it has since been invalidated), and the touch-by-touch evidence.
- */
+/** Everything behind one signal: the live chart with the level drawn on it, its fate, and its touches. */
 export function SignalDetail({ signal }: { signal: Signal }) {
+  const { timeZone } = useTimeZone()
   const [detail, setDetail] = useState<Signal | null>(null)
   const [level, setLevel] = useState<Level | null>(null)
-  const [candles, setCandles] = useState<Candle[]>([])
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     setError(null)
     setDetail(null)
-    setCandles([])
-
-    Promise.all([
-      api.signal(signal.id),
-      api.level(signal.levelId),
-      api.candles(signal.symbol, signal.timeframe, 500),
-    ])
-      .then(([s, l, c]) => {
+    setLevel(null)
+    Promise.all([api.signal(signal.id), api.level(signal.levelId)])
+      .then(([s, l]) => {
         if (cancelled) return
         setDetail(s)
         setLevel(l)
-        setCandles(c)
       })
       .catch((e: Error) => !cancelled && setError(e.message))
-
     return () => {
       cancelled = true
     }
-  }, [signal.id, signal.levelId, signal.symbol, signal.timeframe])
+  }, [signal.id, signal.levelId])
 
   const touches = detail?.touches ?? []
 
@@ -64,14 +56,9 @@ export function SignalDetail({ signal }: { signal: Signal }) {
           </div>
           <div>
             <div className="stat-label">Detected</div>
-            <div className="stat-value">{timestamp(signal.detectedAt)}</div>
+            <div className="stat-value">{timestamp(signal.detectedAt, timeZone)}</div>
           </div>
-          <div>
-            <div className="stat-label">Breakout</div>
-            <div className="stat-value">
-              {level?.breakout ? timestamp(level.breakout.confirmedAt) : 'none'}
-            </div>
-          </div>
+          <LevelFate level={level} />
           <div>
             <div className="stat-label">Origin</div>
             <div className="stat-value">{signal.historical ? 'replay' : 'live'}</div>
@@ -80,15 +67,16 @@ export function SignalDetail({ signal }: { signal: Signal }) {
       </div>
 
       {error && <div className="error">{error}</div>}
+      <SupersededNote level={level} />
 
-      {candles.length > 0 && (
-        <LevelChart
-          candles={candles}
-          levelPrice={Number(signal.price)}
-          zoneLower={Number(signal.zoneLower)}
-          zoneUpper={Number(signal.zoneUpper)}
-          touches={touches}
-          type={signal.type}
+      {detail && (
+        <LiveChart
+          symbol={signal.symbol}
+          timeframe={signal.timeframe}
+          level={{
+            price: Number(signal.price), zoneLower: Number(signal.zoneLower), zoneUpper: Number(signal.zoneUpper),
+            type: signal.type, touches,
+          }}
         />
       )}
 
@@ -97,7 +85,7 @@ export function SignalDetail({ signal }: { signal: Signal }) {
 
       {level?.breakout && (
         <>
-          <div className="section-title">Breakout that invalidated this level</div>
+          <div className="section-title">Breakout{level.status === 'SUPERSEDED' ? ' (after it was superseded)' : ''}</div>
           <table>
             <thead>
               <tr>
@@ -110,7 +98,7 @@ export function SignalDetail({ signal }: { signal: Signal }) {
             </thead>
             <tbody>
               <tr style={{ cursor: 'default' }}>
-                <td className="num">{timestamp(level.breakout.confirmedAt)}</td>
+                <td className="num">{timestamp(level.breakout.confirmedAt, timeZone)}</td>
                 <td className="num">{price(level.breakout.thresholdPrice)}</td>
                 <td className="num">{price(level.breakout.confirmationPrice)}</td>
                 <td className="num dim">{level.breakout.confirmationCandles}</td>

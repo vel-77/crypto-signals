@@ -126,7 +126,12 @@ crypto-signals:
     close-beyond-level: true      # a lone wick does not break a level
     wick-break-allowed: false
     emit-signal-on-every-touch-after-min: true  # also signal on touch 4, 5, ...
+    supersede-enabled: true                     # the "nearest level" rule
+    supersede-max-distance-percent: "15m:0.5,30m:0.6,1h:0.75,4h:1.5"
 ```
+
+The web UI adds per-viewer time zones (saved in each browser), multi-select filters including a
+touch-count filter, and a live chart fed directly from Binance with a measuring tool.
 
 `GET /api/config` returns exactly what the running engine is using, including a fingerprint that
 every stored level and signal is tagged with. Secrets are never included.
@@ -239,8 +244,8 @@ implementation of one method.
 
 ```bash
 cd backend
-mvn test                                        # 131 unit tests, no Docker needed
-mvn verify                                      # + 17 integration tests (real PostgreSQL)
+mvn test                                        # 143 unit tests, no Docker needed
+mvn verify                                      # + 20 integration tests (real PostgreSQL)
 mvn test -Dgroups=external -Dtest.excluded.groups=   # + 5 live Binance API tests
 ```
 
@@ -275,6 +280,7 @@ fails if the migrations and the entity mappings ever disagree.
 | Database restart | Connection pool reconnects; the next reconciliation sweep catches up. |
 | Extreme prices | Every threshold is relative. Verified from 0.000099 to 1,000,000. |
 | Level broken then reforms | Broken levels are terminal; a new structure at that price becomes a new level with its own count. |
+| Two levels close together | Once price passes the nearer one and the next one is closer, the passed level is **superseded** (see docs/ALGORITHM.md). |
 
 ---
 

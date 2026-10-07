@@ -50,10 +50,11 @@ public class BacktestController {
             @RequestParam(defaultValue = "false") boolean fetch,
             @Parameter(description = "json, csv or report") @RequestParam(defaultValue = "json") String format) {
 
+        Timeframe tf = Timeframe.fromCode(timeframe);
         BacktestRequest request = new BacktestRequest(
-                new MarketKey(symbol, Timeframe.fromCode(timeframe)),
+                new MarketKey(symbol, tf),
                 from, to != null ? to : Instant.now(),
-                analysisProperties.toAnalysisConfig(), fetch);
+                analysisProperties.toAnalysisConfig(tf), fetch);
 
         BacktestResult result = backtestService.run(request);
         int minTouches = analysisProperties.getMinTouches();

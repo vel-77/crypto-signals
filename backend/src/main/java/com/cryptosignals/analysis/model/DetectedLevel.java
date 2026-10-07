@@ -25,7 +25,11 @@ import java.util.Optional;
  * @param lastTouchIndex index of the most recent touch, or -1
  * @param lastTouchTime  open time of the most recent touch, or -1
  * @param touches      all valid touches, in order
- * @param breakout     the confirmed breakout, if the level is BROKEN
+ * @param breakout     the confirmed breakout, if the level is BROKEN — or, for a SUPERSEDED level,
+ *                     a breakout that happened after it was retired
+ * @param supersededBy      id of the level that took over, if SUPERSEDED, else null
+ * @param supersededByPrice price of that level, or NaN
+ * @param supersededAtTime  open time of the candle on which it was superseded, or -1
  */
 public record DetectedLevel(
         String id,
@@ -42,7 +46,10 @@ public record DetectedLevel(
         int lastTouchIndex,
         long lastTouchTime,
         List<Touch> touches,
-        BreakoutEvent breakout) {
+        BreakoutEvent breakout,
+        String supersededBy,
+        double supersededByPrice,
+        long supersededAtTime) {
 
     public DetectedLevel {
         touches = touches == null ? List.of() : List.copyOf(touches);
