@@ -6,6 +6,8 @@ import com.cryptosignals.domain.Candle;
 import com.cryptosignals.domain.MarketKey;
 import com.cryptosignals.persistence.entity.MarketEntity;
 
+import java.util.function.Function;
+
 /**
  * One market's engine plus the state it needs, with access serialised.
  *
@@ -57,6 +59,13 @@ public final class MarketEngine {
     public long lastCandleOpenTime() {
         synchronized (lock) {
             return engine.lastCandleOpenTime();
+        }
+    }
+
+    /** Runs an action with the engine held still: no candle is processed until it returns. */
+    public <T> T withEngineLocked(Function<LevelAnalysisEngine, T> action) {
+        synchronized (lock) {
+            return action.apply(engine);
         }
     }
 

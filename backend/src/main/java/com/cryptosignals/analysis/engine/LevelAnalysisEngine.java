@@ -19,11 +19,14 @@ import com.cryptosignals.domain.LevelType;
 import com.cryptosignals.domain.MarketKey;
 import com.cryptosignals.domain.SignalStatus;
 import com.cryptosignals.domain.SignalTrigger;
+import com.cryptosignals.domain.SupersedeReason;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The detection engine for a single market (symbol + timeframe).
@@ -42,6 +45,8 @@ import java.util.List;
  *       state machine, then consider emitting a signal.</li>
  *   <li>Run the discovery strategy, which may create new levels from swings that this candle has
  *       just confirmed. New levels are replayed over the candles between the swing and now.</li>
+ *   <li>Apply the supersede rules, then emit the signals this candle's touches earned on levels
+ *       that are still active.</li>
  *   <li>Expire and prune levels.</li>
  * </ol>
  *
@@ -71,9 +76,10 @@ public final class LevelAnalysisEngine {
 
     /**
      * Touch events seen on the current candle that may raise a signal. Emission waits until the
-     * whole candle has been processed: a candle that touches a level and, by its close, has already
-     * moved past it towards a nearer level is a pass-through, not a test, and must not raise a
-     * signal that is superseded the instant it appears.
+     * whole candle has been processed, so a level superseded on this very candle raises nothing: a
+     * candle that touches a level and, by its close, has already moved past it towards a nearer
+     * level is a pass-through, not a test; and a level whose third touch puts it next to a higher
+     * resistance (lower support) is folded into that level rather than announced as a new one.
      */
     private record PendingSignal(LevelState level, Candle candle, int index, TouchEvent event) {
     }
@@ -179,7 +185,7 @@ public final class LevelAnalysisEngine {
         }
 
         detectionStrategy.onCandle(new Context(index, newSignals, newBreakouts, invalidated, changed));
-        supersedeLevels(candle, index, invalidated, changed);
+        supersedeLevels(candle, invalidated, changed);
         for (PendingSignal pending : pendingSignals) {
             maybeEmitSignal(pending.level(), pending.candle(), pending.index(), pending.event(), newSignals);
         }
@@ -279,9 +285,121 @@ public final class LevelAnalysisEngine {
     }
 
     /**
-     * Retires levels that a nearby, stronger level has taken over from (the "nearest level" rule).
+     * Applies both supersede rules at the close of a candle: first the proximity rule, then the
+     * price rule over whatever is still active.
+     */
+    private void supersedeLevels(Candle candle, List<TradingSignal> statusChanged,
+                                 List<LevelState> changed) {
+        if (!config.supersedeEnabled()) {
+            return;
+        }
+        if (config.supersedeNearbyLevels()) {
+            supersedeNearbyLevels(LevelType.RESISTANCE, candle, statusChanged, changed);
+            supersedeNearbyLevels(LevelType.SUPPORT, candle, statusChanged, changed);
+        }
+        if (config.supersedeOnPricePass()) {
+            supersedePassedLevels(candle, statusChanged, changed);
+        }
+    }
+
+    /**
+     * The proximity rule: close-together established levels of one role collapse onto one line.
      *
-     * <p>For a resistance A, on the close of each candle:
+     * <p>Only levels that have reached {@code minTouches} take part. They are sorted by price and
+     * each is compared with its next neighbour; when the gap is within
+     * {@code supersedeMaxDistancePercent} of the lower price, the two belong to the same group.
+     * Grouping chains, so a group can span more than the limit end to end as long as every
+     * neighbouring gap is within it.
+     *
+     * <p>In each group the outermost active level stays active — the highest resistance, the
+     * lowest support — and every other active member is SUPERSEDED by it. The current price plays
+     * no part.
+     *
+     * <p>Levels already superseded, and not broken since, still take part as links in the chain —
+     * they are still established levels in that price area — but are never the one kept. Without
+     * that, the outcome would depend on the order levels formed in: with 100 000, 100 400 and
+     * 100 800 all established, 100 000 would survive if it formed after 100 400 had already been
+     * folded into 100 800, and be superseded if it formed before.
+     */
+    private void supersedeNearbyLevels(LevelType type, Candle candle,
+                                       List<TradingSignal> statusChanged, List<LevelState> changed) {
+        List<LevelState> members = new ArrayList<>();
+        int activeMembers = 0;
+        for (LevelState level : levels) {
+            if (level.type() != type || level.touchCount() < config.minTouches()) {
+                continue;
+            }
+            if (level.isActive()) {
+                members.add(level);
+                activeMembers++;
+            } else if (isChainLink(level)) {
+                members.add(level);
+            }
+        }
+        if (activeMembers < 2) {
+            return;
+        }
+        members.sort(Comparator.comparingDouble(LevelState::price).thenComparing(LevelState::id));
+
+        int groupStart = 0;
+        for (int i = 1; i <= members.size(); i++) {
+            boolean sameGroup = i < members.size()
+                    && withinGroupingDistance(members.get(i - 1).price(), members.get(i).price());
+            if (!sameGroup) {
+                retireAllButOutermost(members.subList(groupStart, i), type, candle,
+                        statusChanged, changed);
+                groupStart = i;
+            }
+        }
+    }
+
+    /**
+     * A superseded, established, unbroken level: it no longer shows or signals, but it still
+     * links neighbouring levels into one group for the proximity rule.
+     */
+    private boolean isChainLink(LevelState level) {
+        return level.status() == LevelStatus.SUPERSEDED
+                && level.breakout() == null
+                && level.touchCount() >= config.minTouches();
+    }
+
+    /**
+     * Whether two prices are close enough to count as one area. The tiny epsilon keeps a gap of
+     * exactly the configured percentage inside the limit despite floating-point rounding.
+     */
+    private boolean withinGroupingDistance(double lower, double upper) {
+        double gapPercent = (upper - lower) / lower * 100.0;
+        return gapPercent <= config.supersedeMaxDistancePercent() + 1e-9;
+    }
+
+    private void retireAllButOutermost(List<LevelState> group, LevelType type, Candle candle,
+                                       List<TradingSignal> statusChanged, List<LevelState> changed) {
+        List<LevelState> active = new ArrayList<>(group.size());
+        for (LevelState level : group) {
+            if (level.isActive()) {
+                active.add(level);
+            }
+        }
+        if (active.size() < 2) {
+            return;
+        }
+        // Outermost price wins; on an exact price tie the better-established level does, so the
+        // choice never depends on list order.
+        Comparator<LevelState> outermost = Comparator
+                .comparingDouble((LevelState l) -> type == LevelType.RESISTANCE ? l.price() : -l.price())
+                .thenComparingInt(LevelState::touchCount)
+                .thenComparingInt(l -> -l.createdAtIndex())
+                .thenComparing(LevelState::id, Comparator.reverseOrder());
+        LevelState keeper = active.stream().max(outermost).orElseThrow();
+        for (LevelState level : active) {
+            if (level != keeper) {
+                retire(level, keeper, candle, SupersedeReason.NEARBY_LEVEL, statusChanged, changed);
+            }
+        }
+    }
+
+    /**
+     * The price rule ("nearest level"). For a resistance A, on the close of each candle:
      * <ol>
      *   <li>price has moved past it: {@code close > A.price};</li>
      *   <li>another active resistance B sits above it, within {@code supersedeMaxDistancePercent}
@@ -293,18 +411,15 @@ public final class LevelAnalysisEngine {
      * Support is the mirror image. A is then SUPERSEDED, and any signal it raised changes status
      * with it.
      *
-     * <p>Requiring price to have actually passed A matters: two nearby levels both remain active
-     * while price is below them, because A is still the first obstacle. Only once price is through
-     * A does B become the level that matters.
+     * <p>Run after the proximity rule, by which point no two established levels of a role are
+     * within the distance of each other, so in practice this retires levels that had not yet
+     * reached the touch threshold themselves when price went through them.
      *
      * <p>Every candidate is judged against the set of levels as it stood before this pass, so the
      * outcome does not depend on the order in which levels happen to be visited.
      */
-    private void supersedeLevels(Candle candle, int index, List<TradingSignal> statusChanged,
-                                 List<LevelState> changed) {
-        if (!config.supersedeEnabled()) {
-            return;
-        }
+    private void supersedePassedLevels(Candle candle, List<TradingSignal> statusChanged,
+                                       List<LevelState> changed) {
         double close = candle.close();
         List<LevelState> active = new ArrayList<>();
         for (LevelState level : levels) {
@@ -348,11 +463,15 @@ public final class LevelAnalysisEngine {
         }
 
         for (LevelState[] pair : retirements) {
-            LevelState passed = pair[0];
-            passed.markSuperseded(pair[1], candle.openTime());
-            changeSignalsOf(passed.id(), SignalStatus.SUPERSEDED, statusChanged);
-            trackChanged(changed, passed);
+            retire(pair[0], pair[1], candle, SupersedeReason.PRICE_PASSED, statusChanged, changed);
         }
+    }
+
+    private void retire(LevelState level, LevelState by, Candle candle, SupersedeReason reason,
+                        List<TradingSignal> statusChanged, List<LevelState> changed) {
+        level.markSuperseded(by, candle.openTime(), reason);
+        changeSignalsOf(level.id(), SignalStatus.SUPERSEDED, statusChanged);
+        trackChanged(changed, level);
     }
 
     /**
@@ -407,14 +526,18 @@ public final class LevelAnalysisEngine {
      * Bounds memory in a long-running live process.
      *
      * <p>Completed levels are dropped once reported (they are already persisted), unless the engine
-     * was built to retain them for a backtest report. Active levels are capped: when over the limit,
+     * was built to retain them for a backtest report — except superseded levels that still link a
+     * proximity group, which are kept in both modes because the rule's outcome depends on them and
+     * live must behave exactly like a backtest. Active levels are capped: when over the limit,
      * the least interesting ones go first — fewest touches, then lowest strength, then oldest — with
      * the level id as a final tie-break so pruning is deterministic. Levels that have already
      * emitted a signal are never pruned.
      */
     private void pruneLevels() {
         if (!retainCompletedLevels) {
-            levels.removeIf(level -> !level.isActive() && level.lastSignalledTouchCount() == 0);
+            boolean linksMatter = config.supersedeEnabled() && config.supersedeNearbyLevels();
+            levels.removeIf(level -> !level.isActive() && level.lastSignalledTouchCount() == 0
+                    && !(linksMatter && isChainLink(level)));
         }
 
         int active = 0;
@@ -469,6 +592,17 @@ public final class LevelAnalysisEngine {
         for (LevelState level : levels) {
             if (level.status() == LevelStatus.ACTIVE) {
                 out.add(level.snapshot());
+            }
+        }
+        return out;
+    }
+
+    /** Ids of every level currently ACTIVE. */
+    public Set<String> activeLevelIds() {
+        Set<String> out = new HashSet<>();
+        for (LevelState level : levels) {
+            if (level.isActive()) {
+                out.add(level.id());
             }
         }
         return out;
@@ -560,6 +694,20 @@ public final class LevelAnalysisEngine {
             List<LevelState> out = new ArrayList<>();
             for (LevelState level : levels) {
                 if (level.isActive() && level.type() == type) {
+                    out.add(level);
+                }
+            }
+            return out;
+        }
+
+        @Override
+        public List<LevelState> foldedLevels(LevelType type) {
+            List<LevelState> out = new ArrayList<>();
+            if (!config.supersedeEnabled() || !config.supersedeNearbyLevels()) {
+                return out;
+            }
+            for (LevelState level : levels) {
+                if (level.type() == type && isChainLink(level)) {
                     out.add(level);
                 }
             }

@@ -5,7 +5,9 @@ import com.cryptosignals.domain.SignalTrigger;
 import com.cryptosignals.domain.ToleranceMode;
 import com.cryptosignals.domain.TouchMode;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.zip.CRC32;
 
 /**
  * Every tunable rule of the detection engine. Nothing in the engine is hardcoded; this object is
@@ -53,10 +55,15 @@ import java.time.Duration;
  * @param maxActiveLevelsPerMarket bound on retained levels per market (memory safety)
  * @param levelExpiryCandles       drop untouched levels after this many candles; 0 disables
  * @param enableRoleFlip           on a confirmed breakout, immediately seed an opposite-type level
- * @param supersedeEnabled         retire a level once price has moved past it and a stronger level
- *                                 of the same role, close by on the far side, is nearer to price
- * @param supersedeMaxDistancePercent how far apart (percent of the passed level's price) the two
- *                                 levels may be for the far one to take over
+ * @param supersedeEnabled         master switch for both supersede rules below
+ * @param supersedeNearbyLevels    proximity rule: among established levels of one role that sit
+ *                                 within {@code supersedeMaxDistancePercent} of their neighbour,
+ *                                 keep only the outermost (highest resistance, lowest support)
+ * @param supersedeOnPricePass     price rule: retire a level once price has moved past it and a
+ *                                 stronger level of the same role, close by on the far side, is
+ *                                 nearer to price
+ * @param supersedeMaxDistancePercent the gap (percent of the lower / passed level's price) within
+ *                                 which two levels count as the same price area, for both rules
  *
  * <h2>Strength scoring weights</h2>
  * @param strengthTouchWeight     weight of the touch count component
@@ -95,6 +102,8 @@ public record AnalysisConfig(
         boolean enableRoleFlip,
         // relevance
         boolean supersedeEnabled,
+        boolean supersedeNearbyLevels,
+        boolean supersedeOnPricePass,
         double supersedeMaxDistancePercent,
         // strength weights
         double strengthTouchWeight,
@@ -175,7 +184,12 @@ public record AnalysisConfig(
      * change can invalidate stale derived data.
      */
     public String fingerprint() {
-        return Integer.toHexString(this.hashCode());
+        // Not hashCode(): a record's hashCode folds in each enum's identity hash, which changes on
+        // every JVM start, so the same rules would get a new fingerprint after each restart. The
+        // component-wise toString() is fully determined by the values.
+        CRC32 crc = new CRC32();
+        crc.update(toString().getBytes(StandardCharsets.UTF_8));
+        return String.format("%08x", crc.getValue());
     }
 
     private static void positive(int v, String name) {
@@ -234,6 +248,8 @@ public record AnalysisConfig(
         private boolean enableRoleFlip = false;
 
         private boolean supersedeEnabled = true;
+        private boolean supersedeNearbyLevels = true;
+        private boolean supersedeOnPricePass = true;
         private double supersedeMaxDistancePercent = 0.5;
 
         private double strengthTouchWeight = 0.5;
@@ -268,6 +284,8 @@ public record AnalysisConfig(
             this.levelExpiryCandles = c.levelExpiryCandles;
             this.enableRoleFlip = c.enableRoleFlip;
             this.supersedeEnabled = c.supersedeEnabled;
+            this.supersedeNearbyLevels = c.supersedeNearbyLevels;
+            this.supersedeOnPricePass = c.supersedeOnPricePass;
             this.supersedeMaxDistancePercent = c.supersedeMaxDistancePercent;
             this.strengthTouchWeight = c.strengthTouchWeight;
             this.strengthRejectionWeight = c.strengthRejectionWeight;
@@ -299,6 +317,8 @@ public record AnalysisConfig(
         public Builder levelExpiryCandles(int v) { this.levelExpiryCandles = v; return this; }
         public Builder enableRoleFlip(boolean v) { this.enableRoleFlip = v; return this; }
         public Builder supersedeEnabled(boolean v) { this.supersedeEnabled = v; return this; }
+        public Builder supersedeNearbyLevels(boolean v) { this.supersedeNearbyLevels = v; return this; }
+        public Builder supersedeOnPricePass(boolean v) { this.supersedeOnPricePass = v; return this; }
         public Builder supersedeMaxDistancePercent(double v) { this.supersedeMaxDistancePercent = v; return this; }
         public Builder strengthTouchWeight(double v) { this.strengthTouchWeight = v; return this; }
         public Builder strengthRejectionWeight(double v) { this.strengthRejectionWeight = v; return this; }
@@ -312,7 +332,8 @@ public record AnalysisConfig(
                     breakoutTolerancePercent, confirmationCandles, closeBeyondLevel, wickBreakAllowed,
                     minTouches, signalTrigger, minLevelStrength, emitSignalOnEveryTouchAfterMin,
                     maxActiveLevelsPerMarket, levelExpiryCandles, enableRoleFlip,
-                    supersedeEnabled, supersedeMaxDistancePercent,
+                    supersedeEnabled, supersedeNearbyLevels, supersedeOnPricePass,
+                    supersedeMaxDistancePercent,
                     strengthTouchWeight, strengthRejectionWeight, strengthSpanWeight);
         }
     }

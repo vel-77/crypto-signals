@@ -233,21 +233,59 @@ level raises a 3-touch signal, then a 4-touch signal, a 5-touch signal and so on
 **The application ships with this switched on** (`SIGNAL_ON_EVERY_TOUCH=true`); the engine's own
 default, used by the tests above, is off. Resting on the level between touches still never re-emits.
 
-### Superseded levels — the "nearest level" rule
+### Superseded levels
 
-When two levels of the same role sit close together, only the one nearest to price matters. At the
-close of every candle, an active level **A** becomes `SUPERSEDED` when all of these hold:
+`SUPERSEDED` means "hidden in favour of another level of the same role close by" — never "broken".
+Two rules produce it. Both run at the close of every candle, the proximity rule first, and both use
+the same per-timeframe gap, `supersedeMaxDistancePercent` (default 15m 0.5%, 30m 0.6%, 1h 0.75%,
+4h 1.5%). Each superseded level records which rule retired it (`supersededReason`).
+
+#### Proximity rule — keep only the outermost line of a close-together group (`NEARBY_LEVEL`)
+
+Several established lines a few hundredths of a percent apart describe one price area, so only one
+of them should show.
+
+1. Take every level of one role (support or resistance) in one market (symbol + timeframe) that
+   has at least `minTouches` (3) touches. Levels with fewer touches take no part.
+2. Sort them by price and compare each with its **next neighbour**. If the gap, as a percent of the
+   lower price, is within the limit (inclusive), the two are in the same group. Grouping **chains**:
+   100 000, 100 400 and 100 800 on 15m form one group although the ends are 0.8% apart, because
+   each neighbouring gap is 0.4%.
+3. In each group the **highest resistance** / **lowest support** stays `ACTIVE`; every other member
+   becomes `SUPERSEDED`, pointing at it.
+
+The current price plays no part. Consequences beyond those listed under the price rule below:
+
+- **Already-superseded levels still link a chain.** A superseded, established, unbroken level is
+  still an established level in that area, so it joins neighbours into a group (it is never the one
+  kept). Without this, the result would depend on formation order: 100 000 would survive if it
+  formed after 100 400 had already been folded into 100 800. Once such a level is broken it no
+  longer links anything.
+- **A folded area stays folded.** A new swing within `clusterTolerancePercent` of a folded level is
+  dropped rather than starting a new level there, which would bring back the very near-duplicate
+  line the rule removed.
+- **A level folded on its third touch raises no signal** — it is announced as part of the
+  existing line, not as a new one. A level that signalled earlier and is folded later (a higher
+  resistance became established above it) has its signals moved to `SUPERSEDED`.
+- Live engines normally drop finished levels from memory; links are kept, so a live run ends in
+  exactly the same state as a backtest.
+
+#### Price rule — "nearest level" (`PRICE_PASSED`)
+
+When price moves through a level towards another one just beyond it, only the one nearest to price
+matters. An active level **A** becomes `SUPERSEDED` when all of these hold:
 
 1. **price has passed A** — `close > A` for resistance, `close < A` for support;
 2. another active level **B** of the same role lies beyond A, no more than
-   `supersedeMaxDistancePercent` of A's price away (per timeframe — default 15m 0.5%, 30m 0.6%,
-   1h 0.75%, 4h 1.5%);
+   `supersedeMaxDistancePercent` of A's price away;
 3. **B is established** — it has at least `minTouches` touches, so a half-formed level can never
    retire an established one;
 4. **B is nearer to price** than A: `|B − close| < |close − A|`.
 
 Every candidate is judged against the set of levels as it stood before the pass, so the outcome
-does not depend on visiting order.
+does not depend on visiting order. Because the proximity rule has already run, no two established
+levels of a role are within the gap of each other by then, so in practice this rule retires levels
+that had not yet reached three touches themselves when price went through them.
 
 Worked example (SOL): resistances at 121.59 and 122.0075, 0.34% apart. At 121.20 both stay
 active — 121.59 is still the first obstacle. At 121.80 price is past 121.59 and nearer 122.0075,
@@ -266,7 +304,8 @@ Consequences:
   went through the level rather than testing it, so it raises no signal — mirroring how a breakout
   on the same candle already suppresses one.
 
-Switch the rule off with `SUPERSEDE_ENABLED=false`; tune the gaps with
+Switch each rule off on its own with `SUPERSEDE_NEARBY_LEVELS=false` or
+`SUPERSEDE_ON_PRICE_PASS=false`, both with `SUPERSEDE_ENABLED=false`; tune the gap with
 `SUPERSEDE_MAX_DISTANCE=15m:0.5,30m:0.6,1h:0.75,4h:1.5`.
 
 ---
@@ -356,5 +395,13 @@ Stated openly rather than discovered later:
 - **Pruning can affect results.** `maxActiveLevelsPerMarket` (default 250) bounds memory. If a
   market legitimately has more simultaneous levels, the weakest are dropped and results differ from
   an unbounded run. Raise it if a backtest reports levels near the cap.
-- **Historical replay uses the current config.** Changing a rule changes level ids, so old rows
-  remain under their old `configFingerprint`. They are traceable, not automatically migrated.
+- **Replay covers the lookback window only.** On restart the engine is rebuilt from the last
+  `LOOKBACK` of candles, so a level that formed before that is no longer followed. After every
+  replay, and every 15 minutes, stored levels still marked `ACTIVE` that the engine does not hold
+  as active are moved to `EXPIRED`, and any `ACTIVE` signal on a level that is no longer active
+  takes its level's fate (`INVALIDATED` / `SUPERSEDED` / `EXPIRED`). Without this, such rows would
+  show as active lines forever, often almost on top of the level that replaced them.
+- **Historical replay uses the current config.** Rows of levels the new rules still produce are
+  rewritten in place (status, touches — extra touch rows from the old rules are removed); rows of
+  levels they no longer produce are retired as above. `configFingerprint` records which rules wrote
+  each row and is stable across restarts.

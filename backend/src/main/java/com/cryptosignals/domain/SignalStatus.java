@@ -9,8 +9,8 @@ public enum SignalStatus {
     /** The underlying level aged out without a breakout. */
     EXPIRED,
     /**
-     * Price moved past the level and a closer level of the same role took over before this
-     * one broke. Distinct from INVALIDATED, which means the level itself was broken.
+     * The level was superseded by another level of the same role close by before it broke.
+     * Distinct from INVALIDATED, which means the level itself was broken.
      */
     SUPERSEDED
 }

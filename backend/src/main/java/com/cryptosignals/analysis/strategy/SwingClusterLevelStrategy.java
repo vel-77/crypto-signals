@@ -3,6 +3,7 @@ package com.cryptosignals.analysis.strategy;
 import com.cryptosignals.analysis.engine.LevelState;
 import com.cryptosignals.analysis.model.SwingPoint;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -14,7 +15,10 @@ import java.util.List;
  *       {@code clusterTolerancePercent} of the swing price.</li>
  *   <li>If one exists, attach the swing to it — the level's price is re-derived from all its member
  *       swings, so repeated tests sharpen the estimate instead of spawning near-duplicate levels.</li>
- *   <li>Otherwise create a new level anchored at the swing.</li>
+ *   <li>Otherwise create a new level anchored at the swing — unless the nearest level in range
+ *       is one the proximity rule folded into a neighbour, in which case the swing is dropped:
+ *       re-creating a level there would bring back exactly the near-duplicate line the rule
+ *       removed.</li>
  * </ol>
  *
  * <p>When several levels are in range the <em>nearest</em> one wins, which makes the assignment
@@ -42,11 +46,13 @@ public final class SwingClusterLevelStrategy implements LevelDetectionStrategy {
         List<SwingPoint> swings = swingDetector.confirmedAt(ctx.window(), ctx.index(), ctx.config());
         for (SwingPoint swing : swings) {
             LevelState nearest = findNearestInRange(ctx, swing);
-            if (nearest != null) {
-                ctx.attachSwing(nearest, swing);
-            } else {
+            if (nearest == null) {
                 ctx.createLevel(swing);
+            } else if (nearest.isActive()) {
+                ctx.attachSwing(nearest, swing);
             }
+            // Otherwise the swing sits on a folded level: that area is already represented by the
+            // level it was folded into, so it neither revives the folded level nor seeds a new one.
         }
     }
 
@@ -55,7 +61,9 @@ public final class SwingClusterLevelStrategy implements LevelDetectionStrategy {
         LevelState best = null;
         double bestDistance = Double.MAX_VALUE;
 
-        for (LevelState level : ctx.activeLevels(swing.type())) {
+        List<LevelState> candidates = new ArrayList<>(ctx.activeLevels(swing.type()));
+        candidates.addAll(ctx.foldedLevels(swing.type()));
+        for (LevelState level : candidates) {
             double distance = Math.abs(swing.price() - level.price());
             double allowed = level.price() * tolerancePercent / 100.0;
             if (distance <= allowed && distance < bestDistance) {

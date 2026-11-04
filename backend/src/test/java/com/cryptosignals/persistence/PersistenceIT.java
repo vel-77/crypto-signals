@@ -8,6 +8,8 @@ import com.cryptosignals.domain.Candle;
 import com.cryptosignals.domain.LevelStatus;
 import com.cryptosignals.domain.LevelType;
 import com.cryptosignals.domain.MarketKey;
+import com.cryptosignals.domain.SignalStatus;
+import com.cryptosignals.domain.SupersedeReason;
 import com.cryptosignals.domain.Timeframe;
 import com.cryptosignals.fixtures.Candles;
 import com.cryptosignals.persistence.entity.MarketEntity;
@@ -28,6 +30,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -42,6 +45,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PersistenceIT extends PostgresIntegrationTest {
 
     private static final Timeframe TF = Timeframe.M5;
+    private static final AnalysisConfig PRICE_RULE =
+            AnalysisConfig.builder().supersedeNearbyLevels(false).build();
 
     @Autowired CandleJdbcRepository candles;
     @Autowired AnalysisResultStore store;
@@ -192,8 +197,9 @@ class PersistenceIT extends PostgresIntegrationTest {
     @DisplayName("a superseded level and its signal are stored with who took over")
     void persistsSupersededLevels() {
         // Resistance at 100 300 forms first, then one at 100 000; price then rises through the lower
-        // one, without breaking it, until it is nearer the upper one.
-        runAndPersist(Candles.fromPath(TF, Candles.zigzag(99_300, 15,
+        // one, without breaking it, until it is nearer the upper one. The price rule alone: with the
+        // proximity rule on, the two would be grouped before price moved.
+        runAndPersist(PRICE_RULE, Candles.fromPath(TF, Candles.zigzag(99_300, 15,
                 100_300, 99_300, 100_300, 99_300, 100_300, 99_300,
                 99_000, 100_000, 99_000, 100_000, 99_000, 100_000, 99_000, 100_180, 99_700)));
 
@@ -203,6 +209,7 @@ class PersistenceIT extends PostgresIntegrationTest {
                 .findFirst().orElseThrow();
 
         assertThat(passed.getStatus()).isEqualTo(LevelStatus.SUPERSEDED);
+        assertThat(passed.getSupersededReason()).isEqualTo(SupersedeReason.PRICE_PASSED);
         assertThat(passed.getSupersededBy()).isNotNull();
         assertThat(levels.findById(passed.getSupersededBy())).isPresent()
                 .get().extracting(PriceLevelEntity::getStatus).isEqualTo(LevelStatus.ACTIVE);
@@ -210,7 +217,67 @@ class PersistenceIT extends PostgresIntegrationTest {
         assertThat(passed.getSupersededAt()).isNotNull();
         assertThat(signals.findAll()).filteredOn(s -> s.getLevelId().equals(passed.getId()))
                 .singleElement()
-                .extracting(SignalEntity::getStatus).isEqualTo(com.cryptosignals.domain.SignalStatus.SUPERSEDED);
+                .extracting(SignalEntity::getStatus).isEqualTo(SignalStatus.SUPERSEDED);
+    }
+
+    @Test
+    @DisplayName("re-running under the proximity rule corrects rows written under the old rules")
+    void rerunUnderNewRulesCorrectsStoredRows() {
+        // Resistance 100 400 with three touches, then 100 000 (0.4% below) with four.
+        List<Candle> series = Candles.fromPath(TF, Candles.zigzag(99_000, 15,
+                100_400, 99_000, 100_400, 99_000, 100_400, 99_000,
+                100_000, 99_000, 100_000, 99_000, 100_000, 99_000, 100_000, 99_000));
+
+        // Old rules: both levels active, the lower one with four touches and a signal.
+        runAndPersist(PRICE_RULE, series);
+        PriceLevelEntity lower = resistanceAt(100_000);
+        assertThat(lower.getStatus()).isEqualTo(LevelStatus.ACTIVE);
+        assertThat(touches.findByLevelIdOrderByTouchNumberAsc(lower.getId())).hasSize(4);
+        assertThat(signals.findAll()).filteredOn(s -> s.getLevelId().equals(lower.getId())).isNotEmpty();
+
+        // New rules: the lower level is folded into 100 400 on its third touch.
+        LevelAnalysisEngine engine = runAndPersist(AnalysisConfig.defaults(), series);
+        AnalysisResultStore.Reconciliation outcome =
+                store.reconcileWithEngine(market.getId(), engine.activeLevelIds());
+
+        PriceLevelEntity folded = levels.findById(lower.getId()).orElseThrow();
+        assertThat(folded.getStatus()).isEqualTo(LevelStatus.SUPERSEDED);
+        assertThat(folded.getSupersededReason()).isEqualTo(SupersedeReason.NEARBY_LEVEL);
+        assertThat(folded.getSupersededByPrice().doubleValue()).isEqualTo(100_400.0);
+        assertThat(folded.getTouchCount()).isEqualTo(3);
+        // The fourth touch only existed under the old rules.
+        assertThat(touches.findByLevelIdOrderByTouchNumberAsc(folded.getId()))
+                .extracting(t -> t.getTouchNumber()).containsExactly(1, 2, 3);
+        // The new run never signals the folded level, so its old signal had to be aligned.
+        assertThat(outcome.signalsRetired()).isPositive();
+        assertThat(signals.findAll()).filteredOn(s -> s.getLevelId().equals(folded.getId()))
+                .extracting(SignalEntity::getStatus).containsOnly(SignalStatus.SUPERSEDED);
+        assertThat(resistanceAt(100_400).getStatus()).isEqualTo(LevelStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("stored levels the engine does not track any more are retired, with their signals")
+    void retiresLevelsTheEngineNoLongerTracks() {
+        LevelAnalysisEngine engine = runAndPersist(AnalysisConfig.defaults(),
+                Candles.fromPath(TF, Candles.zigzag(99_000, 15,
+                        100_000, 99_000, 100_000, 99_000, 100_000, 99_500)));
+        PriceLevelEntity level = resistanceAt(100_000);
+        assertThat(level.getStatus()).isEqualTo(LevelStatus.ACTIVE);
+
+        // Everything stored is tracked: nothing to do.
+        AnalysisResultStore.Reconciliation tracked =
+                store.reconcileWithEngine(market.getId(), engine.activeLevelIds());
+        assertThat(tracked.changedAnything()).isFalse();
+
+        // An engine rebuilt from a later window no longer knows the level: it must not stay ACTIVE.
+        AnalysisResultStore.Reconciliation untracked =
+                store.reconcileWithEngine(market.getId(), Set.of());
+        assertThat(untracked.levelsRetired()).isPositive();
+        assertThat(levels.findById(level.getId()).orElseThrow().getStatus()).isEqualTo(LevelStatus.EXPIRED);
+        assertThat(signals.findAll()).filteredOn(s -> s.getLevelId().equals(level.getId()))
+                .isNotEmpty()
+                .extracting(SignalEntity::getStatus).containsOnly(SignalStatus.EXPIRED);
+        assertThat(levels.findByMarketIdAndStatus(market.getId(), LevelStatus.ACTIVE)).isEmpty();
     }
 
     @Test
@@ -229,9 +296,18 @@ class PersistenceIT extends PostgresIntegrationTest {
         assertThat(signals.findById(id).orElseThrow().getNotifiedAt()).isNotNull();
     }
 
+    private PriceLevelEntity resistanceAt(double price) {
+        return levels.findAll().stream()
+                .filter(l -> l.getType() == LevelType.RESISTANCE && l.getPrice().doubleValue() == price)
+                .findFirst().orElseThrow();
+    }
+
     /** Replays a series through a fresh engine, persisting every update as live code would. */
-    private void runAndPersist(List<Candle> series) {
-        AnalysisConfig config = AnalysisConfig.defaults();
+    private LevelAnalysisEngine runAndPersist(List<Candle> series) {
+        return runAndPersist(AnalysisConfig.defaults(), series);
+    }
+
+    private LevelAnalysisEngine runAndPersist(AnalysisConfig config, List<Candle> series) {
         LevelAnalysisEngineFactory factory = new LevelAnalysisEngineFactory();
         LevelAnalysisEngine engine = factory.create(market.toKey(), config, false);
 
@@ -240,5 +316,6 @@ class PersistenceIT extends PostgresIntegrationTest {
             EngineUpdate update = engine.onClosedCandle(candle);
             store.apply(market, update, factory.detectionStrategyName(), config.fingerprint());
         }
+        return engine;
     }
 }

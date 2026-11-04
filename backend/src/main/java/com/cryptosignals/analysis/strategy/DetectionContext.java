@@ -35,6 +35,13 @@ public interface DetectionContext {
     List<LevelState> activeLevels(LevelType type);
 
     /**
+     * Levels the proximity rule has folded into a nearby level that is still standing: superseded,
+     * established and not broken since. Their price area is already represented by that level, so
+     * a swing at one of them must not seed a new level there.
+     */
+    List<LevelState> foldedLevels(LevelType type);
+
+    /**
      * Creates a level anchored at the given swing. The engine seeds it with the swing's own
      * interaction and replays any candles that printed between the swing and now, so the level is
      * immediately consistent with the history it was derived from.

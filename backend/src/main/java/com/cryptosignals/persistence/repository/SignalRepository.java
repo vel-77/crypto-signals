@@ -1,9 +1,15 @@
 package com.cryptosignals.persistence.repository;
 
+import com.cryptosignals.domain.LevelStatus;
+import com.cryptosignals.domain.SignalStatus;
 import com.cryptosignals.persistence.entity.SignalEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,4 +20,15 @@ public interface SignalRepository
     List<SignalEntity> findByNotifiedFalseOrderByDetectedAtAsc();
 
     boolean existsByLevelIdAndTouchCount(UUID levelId, int touchCount);
+
+    /** Gives every still-ACTIVE signal of a market's levels in {@code levelStatus} a new status. */
+    @Modifying
+    @Query("update SignalEntity s set s.status = :to, s.updatedAt = :now "
+            + "where s.marketId = :marketId "
+            + "and s.status = com.cryptosignals.domain.SignalStatus.ACTIVE "
+            + "and s.levelId in (select l.id from PriceLevelEntity l "
+            + "                  where l.marketId = :marketId and l.status = :levelStatus)")
+    int retireActiveSignalsOfLevels(@Param("marketId") Long marketId,
+                                    @Param("levelStatus") LevelStatus levelStatus,
+                                    @Param("to") SignalStatus to, @Param("now") Instant now);
 }

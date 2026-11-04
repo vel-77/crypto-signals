@@ -203,6 +203,23 @@ public class MarketAnalysisService {
         return analysed;
     }
 
+    /**
+     * Retires stored levels the engine no longer follows, and aligns signals with their levels.
+     *
+     * <p>Run with the engine locked, so no candle can create a level between reading the engine's
+     * active set and updating the rows. See {@link AnalysisResultStore#reconcileWithEngine}.
+     */
+    public AnalysisResultStore.Reconciliation reconcileStoredLevels(MarketEngine marketEngine) {
+        AnalysisResultStore.Reconciliation outcome = marketEngine.withEngineLocked(engine ->
+                store.reconcileWithEngine(marketEngine.market().getId(), engine.activeLevelIds()));
+        if (outcome.changedAnything()) {
+            log.info("Reconciled stored levels for {}: {} level(s) no longer tracked marked EXPIRED, "
+                    + "{} signal(s) aligned with their level", marketEngine.key(),
+                    outcome.levelsRetired(), outcome.signalsRetired());
+        }
+        return outcome;
+    }
+
     private void fillGapBefore(MarketEngine marketEngine, Candle candle) {
         long last = marketEngine.lastCandleOpenTime();
         long step = marketEngine.key().timeframe().durationMillis();

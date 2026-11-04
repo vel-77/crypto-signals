@@ -8,6 +8,7 @@ import com.cryptosignals.domain.LevelStatus;
 import com.cryptosignals.domain.LevelType;
 import com.cryptosignals.domain.MarketKey;
 import com.cryptosignals.domain.PriceAggregation;
+import com.cryptosignals.domain.SupersedeReason;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -67,6 +68,7 @@ public final class LevelState {
     private String supersededBy;
     private double supersededByPrice = Double.NaN;
     private long supersededAtTime = -1;
+    private SupersedeReason supersedeReason;
 
     // ---- bookkeeping ---------------------------------------------------------------------
     private int lastSignalledTouchCount;
@@ -358,14 +360,15 @@ public final class LevelState {
     }
 
     /**
-     * Retires the level because a closer level of the same role has taken over. Any touch still in
+     * Retires the level because another level of the same role has taken over. Any touch still in
      * progress is closed as it stands; no further touches are counted.
      */
-    public void markSuperseded(LevelState by, long atTime) {
+    public void markSuperseded(LevelState by, long atTime, SupersedeReason reason) {
         this.status = LevelStatus.SUPERSEDED;
         this.supersededBy = by.id();
         this.supersededByPrice = by.price();
         this.supersededAtTime = atTime;
+        this.supersedeReason = reason;
         if (hasOpenTouch()) {
             touches.set(touches.size() - 1, buildClosedTouch());
             this.openStartIndex = -1;
@@ -414,6 +417,7 @@ public final class LevelState {
     public DetectedLevel snapshot() {
         return new DetectedLevel(id, market, type, price, zoneLower, zoneUpper, strength, status,
                 swingPrices.size(), createdAtIndex, createdAtTime, lastTouchIndex, lastTouchTime,
-                List.copyOf(touches), breakout, supersededBy, supersededByPrice, supersededAtTime);
+                List.copyOf(touches), breakout, supersededBy, supersededByPrice, supersededAtTime,
+                supersedeReason);
     }
 }

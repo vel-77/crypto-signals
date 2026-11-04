@@ -9,9 +9,9 @@ public enum LevelStatus {
     /** Aged out without being broken (only when level expiry is enabled). */
     EXPIRED,
     /**
-     * Price moved past this level and a stronger level of the same role, close by on the far
-     * side, is now nearer to price. The level is retired: it stops counting touches and stops
-     * signalling, but a later breakout is still recorded against it.
+     * Hidden in favour of another level of the same role close by — see {@link SupersedeReason}.
+     * The level is retired: it stops counting touches and stops signalling, but a later breakout
+     * is still recorded against it.
      */
     SUPERSEDED
 }

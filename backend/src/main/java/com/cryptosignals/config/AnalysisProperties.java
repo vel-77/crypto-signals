@@ -60,12 +60,18 @@ public class AnalysisProperties {
     @PositiveOrZero private int levelExpiryCandles = 0;
     private boolean enableRoleFlip = false;
 
-    // --- relevance ("nearest level" rule)
+    // --- relevance (supersede rules)
+    /** Master switch for both supersede rules. */
     private boolean supersedeEnabled = true;
+    /** Proximity rule: of close-together established levels, keep only the outermost one. */
+    private boolean supersedeNearbyLevels = true;
+    /** Price rule: retire a level price has moved through towards a nearer established level. */
+    private boolean supersedeOnPricePass = true;
     /**
-     * Maximum gap between a passed level and the level that supersedes it, per timeframe, as
-     * {@code timeframe:percent} pairs. Wider timeframes move further per candle, so they allow a
-     * wider gap. Timeframes not listed use {@link #supersedeDefaultMaxDistancePercent}.
+     * Gap within which two levels of one role count as the same price area, per timeframe, as
+     * {@code timeframe:percent} pairs. Used by both rules. Wider timeframes move further per
+     * candle, so they allow a wider gap. Timeframes not listed use
+     * {@link #supersedeDefaultMaxDistancePercent}.
      */
     private String supersedeMaxDistancePercent = "15m:0.5,30m:0.6,1h:0.75,4h:1.5";
     @PositiveOrZero private double supersedeDefaultMaxDistancePercent = 0.5;
@@ -137,6 +143,8 @@ public class AnalysisProperties {
                 .levelExpiryCandles(levelExpiryCandles)
                 .enableRoleFlip(enableRoleFlip)
                 .supersedeEnabled(supersedeEnabled)
+                .supersedeNearbyLevels(supersedeNearbyLevels)
+                .supersedeOnPricePass(supersedeOnPricePass)
                 .supersedeMaxDistancePercent(supersedeDefaultMaxDistancePercent)
                 .strengthTouchWeight(strengthTouchWeight)
                 .strengthRejectionWeight(strengthRejectionWeight)
@@ -190,6 +198,10 @@ public class AnalysisProperties {
     public boolean isEnableRoleFlip() { return enableRoleFlip; }
     public boolean isSupersedeEnabled() { return supersedeEnabled; }
     public void setSupersedeEnabled(boolean v) { this.supersedeEnabled = v; }
+    public boolean isSupersedeNearbyLevels() { return supersedeNearbyLevels; }
+    public void setSupersedeNearbyLevels(boolean v) { this.supersedeNearbyLevels = v; }
+    public boolean isSupersedeOnPricePass() { return supersedeOnPricePass; }
+    public void setSupersedeOnPricePass(boolean v) { this.supersedeOnPricePass = v; }
     public String getSupersedeMaxDistancePercent() { return supersedeMaxDistancePercent; }
     public void setSupersedeMaxDistancePercent(String v) { this.supersedeMaxDistancePercent = v; }
     public double getSupersedeDefaultMaxDistancePercent() { return supersedeDefaultMaxDistancePercent; }

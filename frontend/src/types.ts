@@ -48,6 +48,8 @@ export interface Level {
   supersededBy?: string | null
   supersededByPrice?: string | null
   supersededAt?: string | null
+  /** NEARBY_LEVEL: grouped with a close level further out. PRICE_PASSED: price went through it. */
+  supersededReason?: 'NEARBY_LEVEL' | 'PRICE_PASSED' | null
   touches?: Touch[]
   breakout?: Breakout | null
 }

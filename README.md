@@ -126,7 +126,9 @@ crypto-signals:
     close-beyond-level: true      # a lone wick does not break a level
     wick-break-allowed: false
     emit-signal-on-every-touch-after-min: true  # also signal on touch 4, 5, ...
-    supersede-enabled: true                     # the "nearest level" rule
+    supersede-enabled: true                     # both supersede rules
+    supersede-nearby-levels: true               # keep only the outermost of close-together levels
+    supersede-on-price-pass: true               # the "nearest level" rule
     supersede-max-distance-percent: "15m:0.5,30m:0.6,1h:0.75,4h:1.5"
 ```
 
@@ -244,8 +246,8 @@ implementation of one method.
 
 ```bash
 cd backend
-mvn test                                        # 143 unit tests, no Docker needed
-mvn verify                                      # + 20 integration tests (real PostgreSQL)
+mvn test                                        # 156 unit tests, no Docker needed
+mvn verify                                      # + 22 integration tests (real PostgreSQL)
 mvn test -Dgroups=external -Dtest.excluded.groups=   # + 5 live Binance API tests
 ```
 
@@ -280,7 +282,8 @@ fails if the migrations and the entity mappings ever disagree.
 | Database restart | Connection pool reconnects; the next reconciliation sweep catches up. |
 | Extreme prices | Every threshold is relative. Verified from 0.000099 to 1,000,000. |
 | Level broken then reforms | Broken levels are terminal; a new structure at that price becomes a new level with its own count. |
-| Two levels close together | Once price passes the nearer one and the next one is closer, the passed level is **superseded** (see docs/ALGORITHM.md). |
+| Two levels close together | Established levels (3+ touches) whose neighbouring gaps are within the timeframe's limit form one group; only the highest resistance / lowest support stays active, the rest are **superseded**. A level price passes on its way to a nearer one is superseded too (see docs/ALGORITHM.md). |
+| Restart with a moving lookback window | Stored levels the rebuilt engine no longer follows are marked `EXPIRED` instead of showing as active forever. |
 
 ---
 

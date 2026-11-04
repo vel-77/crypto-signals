@@ -3,6 +3,7 @@ package com.cryptosignals.analysis.model;
 import com.cryptosignals.domain.LevelStatus;
 import com.cryptosignals.domain.LevelType;
 import com.cryptosignals.domain.MarketKey;
+import com.cryptosignals.domain.SupersedeReason;
 
 import java.util.List;
 import java.util.Optional;
@@ -18,7 +19,7 @@ import java.util.Optional;
  * @param zoneLower    inclusive lower bound of the tolerance zone
  * @param zoneUpper    inclusive upper bound of the tolerance zone
  * @param strength     0..1 quality score
- * @param status       ACTIVE / BROKEN / EXPIRED
+ * @param status       ACTIVE / BROKEN / EXPIRED / SUPERSEDED
  * @param swingCount   number of swing points that formed this level
  * @param createdAtIndex candle index at which the level was created
  * @param createdAtTime  open time of that candle, epoch millis
@@ -30,6 +31,7 @@ import java.util.Optional;
  * @param supersededBy      id of the level that took over, if SUPERSEDED, else null
  * @param supersededByPrice price of that level, or NaN
  * @param supersededAtTime  open time of the candle on which it was superseded, or -1
+ * @param supersedeReason   which rule retired it, if SUPERSEDED, else null
  */
 public record DetectedLevel(
         String id,
@@ -49,7 +51,8 @@ public record DetectedLevel(
         BreakoutEvent breakout,
         String supersededBy,
         double supersededByPrice,
-        long supersededAtTime) {
+        long supersededAtTime,
+        SupersedeReason supersedeReason) {
 
     public DetectedLevel {
         touches = touches == null ? List.of() : List.copyOf(touches);

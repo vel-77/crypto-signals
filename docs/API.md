@@ -110,7 +110,10 @@ curl 'http://localhost:8080/api/levels?symbol=BTCUSDT&timeframe=1h&type=RESISTAN
 ### `GET /api/levels/{id}`
 
 One level with its touches and its breakout, if it has one. A superseded level also carries
-`supersededBy` (the id of the level that took over), `supersededByPrice` and `supersededAt`.
+`supersededBy` (the id of the level that took over), `supersededByPrice`, `supersededAt` and
+`supersededReason`: `NEARBY_LEVEL` (folded into a close-together level further out — the highest
+resistance / lowest support of the group) or `PRICE_PASSED` (price moved through it towards a
+nearer level).
 
 ### `GET /api/levels/{id}/touches`
 

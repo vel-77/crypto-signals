@@ -136,9 +136,15 @@ crypto-signals:
     level-expiry-candles: 0         # 0 disables ageing out
     enable-role-flip: false         # broken resistance immediately becomes support
 
-    # --- "nearest level" rule: retire a level once price is past it and a stronger level just
-    #     beyond it is nearer to price. Gap allowed between the two, per timeframe:
-    supersede-enabled: true
+    # --- supersede rules: hide a level in favour of a nearby level of the same role (SUPERSEDED,
+    #     not broken). Both rules use the per-timeframe gap below.
+    supersede-enabled: true          # master switch for both rules
+    # Proximity: established levels (>= min-touches) whose neighbouring gaps are all within the
+    # limit form one group; only the highest resistance / lowest support of it stays active.
+    supersede-nearby-levels: true
+    # Price: once price is past a level and an established level just beyond it is nearer to
+    # price, the passed level is retired.
+    supersede-on-price-pass: true
     supersede-max-distance-percent: "15m:0.5,30m:0.6,1h:0.75,4h:1.5"
     supersede-default-max-distance-percent: 0.5   # timeframes not listed above
 

@@ -191,6 +191,8 @@ class ApiIT extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$.analysis.touchTolerancePercent").value(0.1))
                 .andExpect(jsonPath("$.analysis.emitSignalOnEveryTouchAfterMin").value(true))
                 .andExpect(jsonPath("$.analysis.supersedeEnabled").value(true))
+                .andExpect(jsonPath("$.analysis.supersedeNearbyLevels").value(true))
+                .andExpect(jsonPath("$.analysis.supersedeOnPricePass").value(true))
                 .andExpect(jsonPath("$.analysis.supersedeMaxDistanceByTimeframe['15m']").value(0.5))
                 .andExpect(jsonPath("$.analysis.supersedeMaxDistanceByTimeframe['1h']").value(0.75))
                 .andExpect(jsonPath("$.configFingerprint").exists())

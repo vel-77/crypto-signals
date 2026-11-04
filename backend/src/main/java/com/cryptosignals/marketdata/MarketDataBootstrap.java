@@ -82,6 +82,7 @@ public class MarketDataBootstrap implements ApplicationRunner {
                         marketData.healGaps(engine.market(), key);
                     }
                     analysisService.replayHistory(engine);
+                    analysisService.reconcileStoredLevels(engine);
                     ready.add(key);
                 } catch (Exception ex) {
                     // One unavailable or misconfigured market must not stop the others.
@@ -136,6 +137,7 @@ public class MarketDataBootstrap implements ApplicationRunner {
             // candles stored earlier must still reach the engine.
             try {
                 analysisService.catchUp(engine);
+                analysisService.reconcileStoredLevels(engine);
             } catch (Exception ex) {
                 log.warn("Catch-up failed for {}: {}", engine.key(), ex.toString());
             }

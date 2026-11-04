@@ -5,7 +5,9 @@ import com.cryptosignals.analysis.model.BreakoutEvent;
 import com.cryptosignals.analysis.model.DetectedLevel;
 import com.cryptosignals.analysis.model.Touch;
 import com.cryptosignals.analysis.model.TradingSignal;
+import com.cryptosignals.domain.LevelStatus;
 import com.cryptosignals.domain.MarketKey;
+import com.cryptosignals.domain.SignalStatus;
 import com.cryptosignals.persistence.entity.BreakoutEventEntity;
 import com.cryptosignals.persistence.entity.LevelTouchEntity;
 import com.cryptosignals.persistence.entity.MarketEntity;
@@ -23,9 +25,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -41,6 +46,9 @@ import java.util.UUID;
 public class AnalysisResultStore {
 
     private static final Logger log = LoggerFactory.getLogger(AnalysisResultStore.class);
+
+    /** Ids per bulk update, well inside the database's bind-parameter limit. */
+    private static final int RECONCILE_BATCH = 1_000;
 
     private final MarketRepository markets;
     private final PriceLevelRepository levels;
@@ -110,6 +118,7 @@ public class AnalysisResultStore {
         entity.setSupersededBy(level.supersededBy() == null ? null : UUID.fromString(level.supersededBy()));
         entity.setSupersededByPrice(Double.isNaN(level.supersededByPrice()) ? null : decimal(level.supersededByPrice()));
         entity.setSupersededAt(level.supersededAtTime() > 0 ? Instant.ofEpochMilli(level.supersededAtTime()) : null);
+        entity.setSupersededReason(level.supersedeReason());
         entity.setStrategy(strategy);
         entity.setConfigFingerprint(fingerprint);
         levels.save(entity);
@@ -123,11 +132,23 @@ public class AnalysisResultStore {
      * <p>Existing rows are updated in place rather than deleted and re-inserted: the last touch is
      * mutable while it is still open (its extreme and its rejection distance keep moving), and
      * stable touch ids make the API's touch listing stable for clients.
+     *
+     * <p>Rows numbered beyond what the engine now reports are removed. They only exist when the
+     * same level was analysed under different rules before — for instance it collected a fourth
+     * touch under old rules but is now superseded at its third.
      */
     private void saveTouches(UUID levelId, List<Touch> current) {
         Map<Integer, LevelTouchEntity> existing = new HashMap<>();
+        List<LevelTouchEntity> stale = new ArrayList<>();
         for (LevelTouchEntity entity : touches.findByLevelIdOrderByTouchNumberAsc(levelId)) {
-            existing.put(entity.getTouchNumber(), entity);
+            if (entity.getTouchNumber() > current.size()) {
+                stale.add(entity);
+            } else {
+                existing.put(entity.getTouchNumber(), entity);
+            }
+        }
+        if (!stale.isEmpty()) {
+            touches.deleteAll(stale);
         }
 
         for (Touch touch : current) {
@@ -201,6 +222,57 @@ public class AnalysisResultStore {
         signals.save(entity);
         log.info("SIGNAL {} {} {} @ {} after {} touches", signal.market(), signal.type(),
                 signal.id(), signal.price(), signal.touchCount());
+    }
+
+    /** What {@link #reconcileWithEngine} changed. */
+    public record Reconciliation(int levelsRetired, int signalsRetired) {
+        public boolean changedAnything() {
+            return levelsRetired > 0 || signalsRetired > 0;
+        }
+    }
+
+    /**
+     * Makes one market's stored statuses agree with what its engine currently tracks.
+     *
+     * <p>Rows are written only for levels the engine reports, so a row can be left saying ACTIVE
+     * after the engine stopped following it: the level formed before the start of the replay
+     * window and was therefore not rebuilt on the last restart, or it was dropped by the cap on
+     * active levels. Nothing would ever update such a row again — it would show as an active line
+     * forever, often almost on top of the level that replaced it. Every ACTIVE row the engine
+     * does not hold as active is therefore moved to EXPIRED.
+     *
+     * <p>Then every signal still ACTIVE on a level that is not active any more takes its level's
+     * fate: INVALIDATED for a broken level, SUPERSEDED for a superseded one, EXPIRED otherwise.
+     *
+     * @param trackedActiveIds ids of all levels the engine holds as ACTIVE right now
+     */
+    @Transactional
+    public Reconciliation reconcileWithEngine(long marketId, Set<String> trackedActiveIds) {
+        Set<UUID> tracked = new HashSet<>();
+        for (String id : trackedActiveIds) {
+            tracked.add(UUID.fromString(id));
+        }
+        List<UUID> untracked = new ArrayList<>();
+        for (UUID id : levels.findIdsByMarketIdAndStatus(marketId, LevelStatus.ACTIVE)) {
+            if (!tracked.contains(id)) {
+                untracked.add(id);
+            }
+        }
+
+        Instant now = Instant.now();
+        int levelsRetired = 0;
+        for (int from = 0; from < untracked.size(); from += RECONCILE_BATCH) {
+            List<UUID> batch = untracked.subList(from, Math.min(untracked.size(), from + RECONCILE_BATCH));
+            levelsRetired += levels.changeStatusIfStill(batch, LevelStatus.ACTIVE, LevelStatus.EXPIRED, now);
+        }
+
+        int signalsRetired = signals.retireActiveSignalsOfLevels(marketId, LevelStatus.BROKEN,
+                SignalStatus.INVALIDATED, now)
+                + signals.retireActiveSignalsOfLevels(marketId, LevelStatus.SUPERSEDED,
+                SignalStatus.SUPERSEDED, now)
+                + signals.retireActiveSignalsOfLevels(marketId, LevelStatus.EXPIRED,
+                SignalStatus.EXPIRED, now);
+        return new Reconciliation(levelsRetired, signalsRetired);
     }
 
     /** Marks a signal delivered. Called only after a notifier has actually accepted it. */

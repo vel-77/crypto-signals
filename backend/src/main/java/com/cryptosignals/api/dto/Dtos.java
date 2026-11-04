@@ -4,6 +4,7 @@ import com.cryptosignals.domain.Candle;
 import com.cryptosignals.domain.LevelStatus;
 import com.cryptosignals.domain.LevelType;
 import com.cryptosignals.domain.SignalStatus;
+import com.cryptosignals.domain.SupersedeReason;
 import com.cryptosignals.persistence.entity.BreakoutEventEntity;
 import com.cryptosignals.persistence.entity.LevelTouchEntity;
 import com.cryptosignals.persistence.entity.PriceLevelEntity;
@@ -90,6 +91,7 @@ public final class Dtos {
             UUID supersededBy,
             BigDecimal supersededByPrice,
             Instant supersededAt,
+            SupersedeReason supersededReason,
             List<TouchDto> touches,
             BreakoutDto breakout) {
 
@@ -103,7 +105,8 @@ public final class Dtos {
                     entity.getStrength(), entity.getStatus(), entity.getSwingCount(),
                     entity.getTouchCount(), entity.getFirstSeenAt(), entity.getLastTouchAt(),
                     entity.getStrategy(), entity.getConfigFingerprint(), entity.getSupersededBy(),
-                    entity.getSupersededByPrice(), entity.getSupersededAt(), touches, breakout);
+                    entity.getSupersededByPrice(), entity.getSupersededAt(),
+                    entity.getSupersededReason(), touches, breakout);
         }
     }
 

@@ -2,6 +2,7 @@ package com.cryptosignals.persistence.entity;
 
 import com.cryptosignals.domain.LevelStatus;
 import com.cryptosignals.domain.LevelType;
+import com.cryptosignals.domain.SupersedeReason;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -79,6 +80,10 @@ public class PriceLevelEntity {
 
     @Column(name = "superseded_at")
     private Instant supersededAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "superseded_reason")
+    private SupersedeReason supersededReason;
 
     @Column(nullable = false)
     private String strategy;
@@ -226,6 +231,8 @@ public class PriceLevelEntity {
     public void setSupersededByPrice(BigDecimal v) { this.supersededByPrice = v; }
     public Instant getSupersededAt() { return supersededAt; }
     public void setSupersededAt(Instant v) { this.supersededAt = v; }
+    public SupersedeReason getSupersededReason() { return supersededReason; }
+    public void setSupersededReason(SupersedeReason v) { this.supersededReason = v; }
 
     public String getStrategy() {
         return strategy;
