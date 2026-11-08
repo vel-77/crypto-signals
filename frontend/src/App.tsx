@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type QueryValue } from './api'
-import type { Filters as FilterState, Level, Signal } from './types'
+import type { Filters as FilterState, Level, NextPotentialRule, Signal } from './types'
 import { Filters } from './components/Filters'
 import { SignalDetail } from './components/SignalDetail'
+import { NextPotentialCell } from './components/NextPotential'
 import { LevelDetail } from './components/LevelDetail'
 import { MarketPanel } from './components/MarketPanel'
 import { price, timestamp } from './components/format'
@@ -63,6 +64,7 @@ export default function App() {
   const [selectedSignal, setSelectedSignal] = useState<Signal | null>(null)
   const [selectedLevel, setSelectedLevel] = useState<Level | null>(null)
   const [config, setConfig] = useState<Record<string, unknown> | null>(null)
+  const [nextPotentialRule, setNextPotentialRule] = useState<NextPotentialRule | null>(null)
   const [status, setStatus] = useState<Record<string, unknown> | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -113,6 +115,7 @@ export default function App() {
         const markets = c.markets as { symbols?: string[]; timeframes?: string[] } | undefined
         setSymbols(markets?.symbols ?? [])
         setTimeframes(markets?.timeframes ?? [])
+        setNextPotentialRule((c.nextPotential as NextPotentialRule | undefined) ?? null)
       })
       .catch(() => {})
   }, [])
@@ -188,6 +191,7 @@ export default function App() {
                     <th>TF</th>
                     <th>Type</th>
                     <th>Level</th>
+                    <th title="Next potential low (support) or high (resistance)">Next low/high</th>
                     <th>Touches</th>
                     <th>Strength</th>
                     <th>Status</th>
@@ -201,6 +205,7 @@ export default function App() {
                       <td className="num faint">{s.timeframe}</td>
                       <td className={`type-${s.type}`}>{s.type === 'RESISTANCE' ? 'RES' : 'SUP'}</td>
                       <td className="num">{price(s.price)}</td>
+                      <td className="num"><NextPotentialCell signal={s} /></td>
                       <td className="num dim">{s.touchCount}</td>
                       <td className="num dim">{s.strength.toFixed(2)}</td>
                       <td><span className={`badge ${s.status}`}>{s.status.toLowerCase()}</span></td>
@@ -211,7 +216,7 @@ export default function App() {
             )}
           </div>
           {selectedSignal ? (
-            <SignalDetail signal={selectedSignal} />
+            <SignalDetail signal={selectedSignal} nextPotentialRule={nextPotentialRule} />
           ) : (
             <MarketPanel symbols={symbols} timeframes={timeframes}
                          preferredSymbol={filters.symbols[0]} preferredTimeframe={filters.timeframes[0]} />

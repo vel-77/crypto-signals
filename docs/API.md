@@ -71,6 +71,8 @@ One signal with every touch that produced it.
   "price": 2567.798, "zoneLower": 2565.2302, "zoneUpper": 2570.3658,
   "touchCount": 3, "strength": 0.80, "status": "ACTIVE",
   "detectedAt": "2026-09-20T11:00:00Z", "historical": false, "notified": true,
+  "nextPotential": { "evaluated": true, "price": 2531.4, "percent": -1.418,
+                     "swingAt": "2026-09-17T08:45:00Z" },
   "touches": [
     { "touchNumber": 1, "touchAt": "2026-09-18T15:10:00Z", "price": 2565.59,
       "distancePercent": 0.0, "candlesSincePrevious": -1, "rejectionPercent": 1.25, "closed": true },
@@ -81,6 +83,13 @@ One signal with every touch that produced it.
   ]
 }
 ```
+
+`nextPotential` is the next potential low (support) or high (resistance): the nearest earlier swing
+low below a support signal, or swing high above a resistance signal, at least
+`next-potential.min-distance-percent` (default 1%) away. `percent` is the signed distance from the
+signal price (negative below). `evaluated: false` means it has not been worked out yet;
+`evaluated: true` with a null `price` means nothing qualified (N/A). The list endpoint returns it
+too. See docs/ALGORITHM.md, "Next potential low / high".
 
 `candlesSincePrevious` is `-1` for the first touch. `closed: false` means the interaction is still
 in progress — its extreme and rejection may still move.

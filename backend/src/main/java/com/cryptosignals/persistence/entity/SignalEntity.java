@@ -37,6 +37,14 @@ public class SignalEntity {
     @Column(nullable = false) private boolean historical;
     @Column(nullable = false) private boolean notified;
     @Column(name = "notified_at") private Instant notifiedAt;
+    // Written only by SignalRepository.storeNextPotential. Read-only here, so saving a signal for
+    // another reason (status, delivery) can never put back a value loaded before it was worked out.
+    @Column(name = "next_potential_price", precision = 38, scale = 18, insertable = false, updatable = false)
+    private BigDecimal nextPotentialPrice;
+    @Column(name = "next_potential_time", insertable = false, updatable = false)
+    private Instant nextPotentialTime;
+    @Column(name = "next_potential_rule", insertable = false, updatable = false)
+    private String nextPotentialRule;
     @Column(name = "created_at", nullable = false) private Instant createdAt = Instant.now();
     @Column(name = "updated_at", nullable = false) private Instant updatedAt = Instant.now();
 
@@ -77,6 +85,9 @@ public class SignalEntity {
     public void setNotified(boolean v) { this.notified = v; }
     public Instant getNotifiedAt() { return notifiedAt; }
     public void setNotifiedAt(Instant v) { this.notifiedAt = v; }
+    public BigDecimal getNextPotentialPrice() { return nextPotentialPrice; }
+    public Instant getNextPotentialTime() { return nextPotentialTime; }
+    public String getNextPotentialRule() { return nextPotentialRule; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

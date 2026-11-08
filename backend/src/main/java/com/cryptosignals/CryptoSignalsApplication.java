@@ -3,6 +3,7 @@ package com.cryptosignals;
 import com.cryptosignals.config.AnalysisProperties;
 import com.cryptosignals.config.ExchangeProperties;
 import com.cryptosignals.config.MarketProperties;
+import com.cryptosignals.config.NextPotentialProperties;
 import com.cryptosignals.config.NotificationProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -15,6 +16,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         AnalysisProperties.class,
         ExchangeProperties.class,
         MarketProperties.class,
+        NextPotentialProperties.class,
         NotificationProperties.class
 })
 public class CryptoSignalsApplication {

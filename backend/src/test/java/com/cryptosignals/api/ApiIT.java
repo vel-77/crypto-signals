@@ -141,7 +141,10 @@ class ApiIT extends PostgresIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.touches", org.hamcrest.Matchers.hasSize(3)))
                 .andExpect(jsonPath("$.touches[0].touchNumber").value(1))
-                .andExpect(jsonPath("$.touches[2].touchNumber").value(3));
+                .andExpect(jsonPath("$.touches[2].touchNumber").value(3))
+                // Seeded straight through the store, so nobody has worked it out yet.
+                .andExpect(jsonPath("$.nextPotential.evaluated").value(false))
+                .andExpect(jsonPath("$.nextPotential.price").doesNotExist());
 
         mvc.perform(get("/api/signals/{id}", UUID.randomUUID()))
                 .andExpect(status().isNotFound());
@@ -195,6 +198,8 @@ class ApiIT extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$.analysis.supersedeOnPricePass").value(true))
                 .andExpect(jsonPath("$.analysis.supersedeMaxDistanceByTimeframe['15m']").value(0.5))
                 .andExpect(jsonPath("$.analysis.supersedeMaxDistanceByTimeframe['1h']").value(0.75))
+                .andExpect(jsonPath("$.nextPotential.minDistancePercent").value(1.0))
+                .andExpect(jsonPath("$.nextPotential.lookback").value("PT720H"))
                 .andExpect(jsonPath("$.configFingerprint").exists())
                 .andExpect(jsonPath("$.detectionStrategy").value(
                         org.hamcrest.Matchers.containsString("swing-cluster")))

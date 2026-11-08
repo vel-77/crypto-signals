@@ -13,6 +13,7 @@ import com.cryptosignals.notifications.NotificationService;
 import com.cryptosignals.persistence.AnalysisResultStore;
 import com.cryptosignals.persistence.entity.MarketEntity;
 import com.cryptosignals.persistence.jdbc.CandleJdbcRepository;
+import com.cryptosignals.persistence.repository.MarketRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -51,6 +52,8 @@ public class MarketAnalysisService {
     private final NotificationService notifications;
     private final MarketDataService marketData;
     private final ExchangeClient exchange;
+    private final NextPotentialService nextPotential;
+    private final MarketRepository markets;
 
     private final Map<MarketKey, MarketEngine> engines = new ConcurrentHashMap<>();
 
@@ -61,7 +64,9 @@ public class MarketAnalysisService {
                                  AnalysisResultStore store,
                                  NotificationService notifications,
                                  MarketDataService marketData,
-                                 ExchangeClient exchange) {
+                                 ExchangeClient exchange,
+                                 NextPotentialService nextPotential,
+                                 MarketRepository markets) {
         this.engineFactory = engineFactory;
         this.analysisProperties = analysisProperties;
         this.exchangeProperties = exchangeProperties;
@@ -70,6 +75,8 @@ public class MarketAnalysisService {
         this.notifications = notifications;
         this.marketData = marketData;
         this.exchange = exchange;
+        this.nextPotential = nextPotential;
+        this.markets = markets;
     }
 
     /** The rules for one market; the supersede distance depends on its timeframe. */
@@ -252,6 +259,64 @@ public class MarketAnalysisService {
     private void persist(MarketEngine marketEngine, EngineUpdate update) {
         store.apply(marketEngine.market(), update,
                 engineFactory.detectionStrategyName(), marketEngine.unsafeEngine().config().fingerprint());
+        if (!update.newSignals().isEmpty()) {
+            fillNextPotential(marketEngine);
+        }
+    }
+
+    /**
+     * Works out the next potential low / high of every signal of the market that has none yet.
+     * Never throws: a failure only delays the value until the next reconciliation.
+     */
+    public int fillNextPotential(MarketEngine marketEngine) {
+        try {
+            int updated = nextPotential.fillMissing(marketEngine.market().getId(), marketEngine.key(),
+                    marketEngine.unsafeEngine().config());
+            if (updated > 1) {
+                log.info("Worked out the next potential low/high of {} signal(s) for {}",
+                        updated, marketEngine.key());
+            }
+            return updated;
+        } catch (Exception ex) {
+            log.warn("Could not work out next potential low/high for {}: {}",
+                    marketEngine.key(), ex.toString());
+            return 0;
+        }
+    }
+
+    /**
+     * Works out the next potential low / high of signals stored for markets that are no longer
+     * watched, e.g. a timeframe taken off the watch list. No engine runs for them, so nothing else
+     * would, and their candles are still stored.
+     */
+    public int fillNextPotentialOfUnwatchedMarkets() {
+        int total = 0;
+        for (MarketEntity market : markets.findAll()) {
+            if (!market.getExchange().equals(exchangeProperties.getName())) {
+                continue;
+            }
+            MarketKey key;
+            try {
+                key = market.toKey();
+            } catch (IllegalArgumentException ex) {
+                continue;
+            }
+            if (engines.containsKey(key)) {
+                continue;
+            }
+            try {
+                int updated = nextPotential.fillMissing(market.getId(), key, configFor(key));
+                if (updated > 0) {
+                    log.info("Worked out the next potential low/high of {} signal(s) for unwatched {}",
+                            updated, key);
+                }
+                total += updated;
+            } catch (Exception ex) {
+                log.warn("Could not work out next potential low/high for unwatched {}: {}",
+                        key, ex.toString());
+            }
+        }
+        return total;
     }
 
     public Optional<MarketEngine> engine(MarketKey key) {

@@ -130,10 +130,16 @@ crypto-signals:
     supersede-nearby-levels: true               # keep only the outermost of close-together levels
     supersede-on-price-pass: true               # the "nearest level" rule
     supersede-max-distance-percent: "15m:0.5,30m:0.6,1h:0.75,4h:1.5"
+  next-potential:
+    min-distance-percent: 1.0     # next potential low/high: ignore swings closer than this
+    lookback: 30d                 # how far back before the signal to look
 ```
 
 The web UI adds per-viewer time zones (saved in each browser), multi-select filters including a
-touch-count filter, and a live chart fed directly from Binance with a measuring tool.
+touch-count filter, and a live chart fed directly from Binance with a measuring tool. Every signal
+shows its **next potential low** (support) or **high** (resistance): the nearest earlier swing at
+least 1% beyond the signal price, as a percentage, in the list, in the signal's detail and on its
+chart.
 
 `GET /api/config` returns exactly what the running engine is using, including a fingerprint that
 every stored level and signal is tagged with. Secrets are never included.
@@ -246,8 +252,8 @@ implementation of one method.
 
 ```bash
 cd backend
-mvn test                                        # 156 unit tests, no Docker needed
-mvn verify                                      # + 22 integration tests (real PostgreSQL)
+mvn test                                        # 167 unit tests, no Docker needed
+mvn verify                                      # + 26 integration tests (real PostgreSQL)
 mvn test -Dgroups=external -Dtest.excluded.groups=   # + 5 live Binance API tests
 ```
 

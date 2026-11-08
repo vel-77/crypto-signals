@@ -83,6 +83,7 @@ public class MarketDataBootstrap implements ApplicationRunner {
                     }
                     analysisService.replayHistory(engine);
                     analysisService.reconcileStoredLevels(engine);
+                    analysisService.fillNextPotential(engine);
                     ready.add(key);
                 } catch (Exception ex) {
                     // One unavailable or misconfigured market must not stop the others.
@@ -101,6 +102,7 @@ public class MarketDataBootstrap implements ApplicationRunner {
             }
             state.set(State.READY);
             log.info("Bootstrap complete: {} market(s) live", ready.size());
+            analysisService.fillNextPotentialOfUnwatchedMarkets();
         } catch (Exception ex) {
             lastError = ex.toString();
             state.set(State.FAILED);
@@ -138,6 +140,7 @@ public class MarketDataBootstrap implements ApplicationRunner {
             try {
                 analysisService.catchUp(engine);
                 analysisService.reconcileStoredLevels(engine);
+                analysisService.fillNextPotential(engine);
             } catch (Exception ex) {
                 log.warn("Catch-up failed for {}: {}", engine.key(), ex.toString());
             }

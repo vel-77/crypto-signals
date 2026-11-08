@@ -126,6 +126,7 @@ public final class Dtos {
             boolean historical,
             boolean notified,
             Instant notifiedAt,
+            NextPotentialDto nextPotential,
             List<TouchDto> touches) {
 
         public static SignalDto from(SignalEntity entity, List<TouchDto> touches) {
@@ -133,7 +134,34 @@ public final class Dtos {
                     entity.getTimeframe(), entity.getType(), entity.getPrice(),
                     entity.getZoneLower(), entity.getZoneUpper(), entity.getTouchCount(),
                     entity.getStrength(), entity.getDetectedAt(), entity.getStatus(),
-                    entity.isHistorical(), entity.isNotified(), entity.getNotifiedAt(), touches);
+                    entity.isHistorical(), entity.isNotified(), entity.getNotifiedAt(),
+                    NextPotentialDto.from(entity), touches);
+        }
+    }
+
+    /**
+     * A signal's next potential low (support) or high (resistance): the nearest earlier swing
+     * beyond the signal price by at least the configured minimum distance.
+     *
+     * @param evaluated false until it has been worked out; true with a null price means nothing
+     *                  qualified (N/A)
+     * @param price     the swing's price, or null when nothing qualified
+     * @param percent   signed distance from the signal price, in percent (negative below)
+     * @param swingAt   when the swing printed
+     */
+    public record NextPotentialDto(boolean evaluated, BigDecimal price, Double percent, Instant swingAt) {
+
+        static NextPotentialDto from(SignalEntity entity) {
+            if (entity.getNextPotentialRule() == null) {
+                return new NextPotentialDto(false, null, null, null);
+            }
+            BigDecimal price = entity.getNextPotentialPrice();
+            if (price == null || entity.getPrice().signum() <= 0) {
+                return new NextPotentialDto(true, null, null, null);
+            }
+            double signal = entity.getPrice().doubleValue();
+            double percent = (price.doubleValue() - signal) / signal * 100.0;
+            return new NextPotentialDto(true, price, percent, entity.getNextPotentialTime());
         }
     }
 

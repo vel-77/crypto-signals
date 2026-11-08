@@ -69,7 +69,26 @@ export interface Signal {
   status: SignalStatus
   historical: boolean
   notified: boolean
+  nextPotential?: NextPotential | null
   touches?: Touch[]
+}
+
+/**
+ * The nearest earlier swing low below a support signal (swing high above a resistance signal) that
+ * is at least the configured distance away. `evaluated` with a null price means nothing qualified.
+ */
+export interface NextPotential {
+  evaluated: boolean
+  /** Absent (not just null) when nothing qualified: the API leaves out empty fields. */
+  price?: string | null
+  percent?: number | null
+  swingAt?: string | null
+}
+
+/** The settings the next potential low / high is worked out with, from /api/config. */
+export interface NextPotentialRule {
+  minDistancePercent: number
+  lookback: string
 }
 
 export interface Candle {

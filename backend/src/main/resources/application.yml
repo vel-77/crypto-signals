@@ -154,6 +154,16 @@ crypto-signals:
     strength-span-weight: 0.2
 
   # -----------------------------------------------------------------------------------------------
+  # Next potential low / high, shown with every signal: the nearest earlier swing low below a
+  # support signal (swing high above a resistance signal) that is at least min-distance-percent
+  # away. Swings use the same rule as level detection, and only those already confirmed when the
+  # signal fired count. Changing a setting recomputes every stored signal on the next start.
+  # -----------------------------------------------------------------------------------------------
+  next-potential:
+    min-distance-percent: 1.0       # ignore swings closer to the signal price than this
+    lookback: 30d                   # how far back before the signal to look; 0 means all stored history
+
+  # -----------------------------------------------------------------------------------------------
   # Notifications. Telegram is the first channel; the abstraction takes more.
   # -----------------------------------------------------------------------------------------------
   notifications:

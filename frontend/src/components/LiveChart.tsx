@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ColorType, CrosshairMode, LineStyle, createChart,
-  type IChartApi, type ISeriesApi, type Logical, type MouseEventParams, type UTCTimestamp,
+  type IChartApi, type ISeriesApi, type Logical, type MouseEventParams, type SeriesMarker, type Time,
+  type UTCTimestamp,
 } from 'lightweight-charts'
 import { api } from '../api'
 import type { LevelType, Touch } from '../types'
@@ -15,7 +16,11 @@ export interface LevelOverlay {
   zoneUpper: number
   type: LevelType
   touches: Touch[]
+  /** The next potential low / high: drawn as a dashed line, with a dot on the swing that set it. */
+  target?: { price: number; time: number | null; label: string } | null
 }
+
+const TARGET_COLOR = '#ff9f43'
 
 interface Props {
   symbol: string
@@ -102,6 +107,7 @@ export function LiveChart({ symbol, timeframe, level }: Props) {
   // rebuilding the chart for that would reset the view and reconnect the socket each time.
   const levelKey = level
     ? `${level.type}|${level.price}|${level.zoneLower}|${level.zoneUpper}|${level.touches.map((t) => t.touchAt).join(',')}`
+      + `|${level.target ? `${level.target.price}@${level.target.time}` : ''}`
     : ''
 
   /** Positions the measurement box over the two chosen points; hides it when there is nothing to show. */
@@ -194,6 +200,12 @@ export function LiveChart({ symbol, timeframe, level }: Props) {
           axisLabelVisible: false, title: '',
         })
       }
+      if (overlay.target) {
+        series.createPriceLine({
+          price: overlay.target.price, color: TARGET_COLOR, lineWidth: 1, lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true, title: overlay.target.label,
+        })
+      }
     }
 
     const toPoint = (b: Bar) => ({
@@ -251,16 +263,26 @@ export function LiveChart({ symbol, timeframe, level }: Props) {
         series.setData(bars.map(toPoint))
 
         if (overlay) {
+          const markers: SeriesMarker<Time>[] = overlay.touches.map((t) => ({
+            time: toChartSeconds(Date.parse(t.touchAt), timeZone) as UTCTimestamp,
+            position: overlay.type === 'RESISTANCE' ? 'aboveBar' : 'belowBar',
+            color: '#f0b429',
+            shape: overlay.type === 'RESISTANCE' ? 'arrowDown' : 'arrowUp',
+            text: String(t.touchNumber),
+          }))
+          const target = overlay.target
+          // Only when the swing is within the loaded candles; otherwise the line alone shows it.
+          if (target?.time != null && target.time >= bars[0].openTime) {
+            markers.push({
+              time: toChartSeconds(target.time, timeZone) as UTCTimestamp,
+              position: overlay.type === 'RESISTANCE' ? 'aboveBar' : 'belowBar',
+              color: TARGET_COLOR,
+              shape: 'circle',
+              text: overlay.type === 'RESISTANCE' ? 'next high' : 'next low',
+            })
+          }
           // Markers must be sorted by time, or the library silently drops them.
-          series.setMarkers(overlay.touches
-            .map((t) => ({
-              time: toChartSeconds(Date.parse(t.touchAt), timeZone) as UTCTimestamp,
-              position: (overlay.type === 'RESISTANCE' ? 'aboveBar' : 'belowBar') as 'aboveBar' | 'belowBar',
-              color: '#f0b429',
-              shape: (overlay.type === 'RESISTANCE' ? 'arrowDown' : 'arrowUp') as 'arrowDown' | 'arrowUp',
-              text: String(t.touchNumber),
-            }))
-            .sort((a, b) => (a.time as number) - (b.time as number)))
+          series.setMarkers(markers.sort((a, b) => (a.time as number) - (b.time as number)))
         }
         chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, bars.length - 220), to: bars.length + 6 })
         setLastPrice(bars[bars.length - 1].close)
@@ -371,6 +393,7 @@ export function LiveChart({ symbol, timeframe, level }: Props) {
         {level && <span><i style={{ background: COLOR[level.type] }} />level</span>}
         {level && <span><i style={{ background: `${COLOR[level.type]}66` }} />tolerance zone</span>}
         {level && <span style={{ color: '#f0b429' }}>▲ numbered touches</span>}
+        {level?.target && <span><i style={{ background: TARGET_COLOR }} />{level.target.label}</span>}
         <span className="faint">times in {timeZone}</span>
       </div>
     </div>

@@ -4,6 +4,7 @@ import com.cryptosignals.analysis.LevelAnalysisEngineFactory;
 import com.cryptosignals.config.AnalysisProperties;
 import com.cryptosignals.config.ExchangeProperties;
 import com.cryptosignals.config.MarketProperties;
+import com.cryptosignals.config.NextPotentialProperties;
 import com.cryptosignals.config.NotificationProperties;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,15 +25,18 @@ public class ConfigController {
     private final ExchangeProperties exchange;
     private final NotificationProperties notifications;
     private final LevelAnalysisEngineFactory engineFactory;
+    private final NextPotentialProperties nextPotential;
 
     public ConfigController(AnalysisProperties analysis, MarketProperties markets,
                             ExchangeProperties exchange, NotificationProperties notifications,
-                            LevelAnalysisEngineFactory engineFactory) {
+                            LevelAnalysisEngineFactory engineFactory,
+                            NextPotentialProperties nextPotential) {
         this.analysis = analysis;
         this.markets = markets;
         this.exchange = exchange;
         this.notifications = notifications;
         this.engineFactory = engineFactory;
+        this.nextPotential = nextPotential;
     }
 
     @GetMapping
@@ -53,6 +57,12 @@ public class ConfigController {
         marketInfo.put("backfillOnStartup", markets.isBackfillOnStartup());
         marketInfo.put("liveEnabled", markets.isLiveEnabled());
         root.put("markets", marketInfo);
+
+        Map<String, Object> nextPotentialInfo = new LinkedHashMap<>();
+        nextPotentialInfo.put("minDistancePercent", nextPotential.getMinDistancePercent());
+        nextPotentialInfo.put("lookback", nextPotential.getLookback().isZero()
+                ? "unlimited" : nextPotential.getLookback().toString());
+        root.put("nextPotential", nextPotentialInfo);
 
         Map<String, Object> exchangeInfo = new LinkedHashMap<>();
         exchangeInfo.put("name", exchange.getName());

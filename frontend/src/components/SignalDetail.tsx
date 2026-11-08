@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import type { Level, Signal } from '../types'
+import type { Level, NextPotentialRule, Signal } from '../types'
 import { useTimeZone } from '../timezone'
 import { LiveChart } from './LiveChart'
 import { LevelFate, SupersededNote } from './LevelFacts'
+import { NextPotentialCard, signedPercent } from './NextPotential'
 import { TouchTable } from './TouchTable'
 import { price, timestamp } from './format'
 
 /** Everything behind one signal: the live chart with the level drawn on it, its fate, and its touches. */
-export function SignalDetail({ signal }: { signal: Signal }) {
+export function SignalDetail({ signal, nextPotentialRule }: {
+  signal: Signal
+  nextPotentialRule: NextPotentialRule | null
+}) {
   const { timeZone } = useTimeZone()
   const [detail, setDetail] = useState<Signal | null>(null)
   const [level, setLevel] = useState<Level | null>(null)
@@ -32,6 +36,7 @@ export function SignalDetail({ signal }: { signal: Signal }) {
   }, [signal.id, signal.levelId])
 
   const touches = detail?.touches ?? []
+  const next = signal.nextPotential
 
   return (
     <div className="detail-pane">
@@ -64,6 +69,7 @@ export function SignalDetail({ signal }: { signal: Signal }) {
             <div className="stat-value">{signal.historical ? 'replay' : 'live'}</div>
           </div>
         </div>
+        <NextPotentialCard signal={signal} rule={nextPotentialRule} />
       </div>
 
       {error && <div className="error">{error}</div>}
@@ -76,6 +82,11 @@ export function SignalDetail({ signal }: { signal: Signal }) {
           level={{
             price: Number(signal.price), zoneLower: Number(signal.zoneLower), zoneUpper: Number(signal.zoneUpper),
             type: signal.type, touches,
+            target: next?.price != null && next.percent != null ? {
+              price: Number(next.price),
+              time: next.swingAt ? Date.parse(next.swingAt) : null,
+              label: `next ${signal.type === 'SUPPORT' ? 'low' : 'high'} ${signedPercent(next.percent)}`,
+            } : null,
           }}
         />
       )}

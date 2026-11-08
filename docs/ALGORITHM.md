@@ -308,6 +308,35 @@ Switch each rule off on its own with `SUPERSEDE_NEARBY_LEVELS=false` or
 `SUPERSEDE_ON_PRICE_PASS=false`, both with `SUPERSEDE_ENABLED=false`; tune the gap with
 `SUPERSEDE_MAX_DISTANCE=15m:0.5,30m:0.6,1h:0.75,4h:1.5`.
 
+### Next potential low / high
+
+Every signal carries the nearest earlier turning point beyond its level: where price turned last
+time it was on the other side, and so the next area that may stop a move if the level gives way.
+
+1. Take the swings that printed before the signal, of the signal's kind: **swing lows** for a
+   support signal, **swing highs** for a resistance signal. They are found with the same fractal
+   rule as in step 1, so small swings count as much as big ones.
+2. Keep those at least `min-distance-percent` (default **1%**) beyond the signal price: lows at least
+   1% below a support, highs at least 1% above a resistance. Exactly 1% qualifies.
+3. Pick the one **nearest in price**: the highest qualifying low, or the lowest qualifying high. Not
+   the most extreme one and not the most recent one. Equal prices go to the more recent swing.
+4. If none qualifies, the value is **N/A**.
+
+Example: a 100 support with earlier lows at 95, 93, 98, 96 and 98.5 gets 98.5 (−1.5%). A 100
+resistance with earlier highs at 105, 107, 102, 104 and 101.5 gets 101.5 (+1.5%).
+
+Only swings already confirmed when the signal fired count, i.e. the candle that confirmed the swing
+is not later than the signal candle. The search covers `lookback` (default 30 days) before the
+signal.
+
+It is worked out from the **stored candles**, not the engine's memory, when the signal is saved.
+The engine only holds the candles since it last started, so working from its memory would give a
+signal analysed soon after a restart less history than one analysed later. The candle table gives
+every signal the same answer. Signals saved before this feature existed are filled in on start-up,
+including those of markets no longer watched, and changing `min-distance-percent`, `lookback` or the swing settings recomputes every stored
+signal on the next start. It is information only: it never changes a level, a touch or whether a
+signal is raised.
+
 ---
 
 ## 10. Strength
