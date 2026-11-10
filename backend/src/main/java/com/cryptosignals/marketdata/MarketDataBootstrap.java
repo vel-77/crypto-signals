@@ -12,8 +12,12 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -26,6 +30,9 @@ import java.util.concurrent.atomic.AtomicReference;
  * <p>Per market: backfill history, repair any holes, replay it through a fresh engine, then hand
  * over to the live stream. Each step is idempotent, so a crash at any point is recovered by simply
  * starting again.
+ *
+ * <p>The markets are those of the {@link WatchList}. When it changes while running, markets are
+ * started and stopped to match without a restart.
  */
 @Component
 public class MarketDataBootstrap implements ApplicationRunner {
@@ -40,19 +47,22 @@ public class MarketDataBootstrap implements ApplicationRunner {
     private final MarketAnalysisService analysisService;
     private final LiveStreamManager liveStream;
     private final NotificationService notifications;
+    private final WatchList watchList;
 
     private final AtomicReference<State> state = new AtomicReference<>(State.PENDING);
     private volatile String lastError;
 
     public MarketDataBootstrap(MarketProperties properties, ExchangeClient exchange,
                                MarketDataService marketData, MarketAnalysisService analysisService,
-                               LiveStreamManager liveStream, NotificationService notifications) {
+                               LiveStreamManager liveStream, NotificationService notifications,
+                               WatchList watchList) {
         this.properties = properties;
         this.exchange = exchange;
         this.marketData = marketData;
         this.analysisService = analysisService;
         this.liveStream = liveStream;
         this.notifications = notifications;
+        this.watchList = watchList;
     }
 
     @Override
@@ -69,25 +79,11 @@ public class MarketDataBootstrap implements ApplicationRunner {
     private void bootstrap() {
         state.set(State.RUNNING);
         try {
+            watchList.initialise();
             List<MarketKey> ready = new ArrayList<>();
-            for (MarketKey key : properties.toMarketKeys()) {
-                try {
-                    if (!exchange.supportsSymbol(key.symbol())) {
-                        log.warn("Skipping {}: the exchange does not list this symbol", key);
-                        continue;
-                    }
-                    MarketEngine engine = analysisService.initialise(key);
-                    if (properties.isBackfillOnStartup()) {
-                        marketData.backfill(engine.market(), key);
-                        marketData.healGaps(engine.market(), key);
-                    }
-                    analysisService.replayHistory(engine);
-                    analysisService.reconcileStoredLevels(engine);
-                    analysisService.fillNextPotential(engine);
+            for (MarketKey key : watchList.marketKeys()) {
+                if (startMarket(key)) {
                     ready.add(key);
-                } catch (Exception ex) {
-                    // One unavailable or misconfigured market must not stop the others.
-                    log.error("Bootstrap failed for {}: {}", key, ex.toString(), ex);
                 }
             }
 
@@ -96,6 +92,7 @@ public class MarketDataBootstrap implements ApplicationRunner {
             // simply marks them suppressed, and with them switched on the operator gets their
             // backlog immediately instead of up to a retry interval later.
             notifications.retryPending();
+            retireUnwatchedMarkets();
 
             if (properties.isLiveEnabled() && !ready.isEmpty()) {
                 liveStream.start(ready);
@@ -107,6 +104,102 @@ public class MarketDataBootstrap implements ApplicationRunner {
             lastError = ex.toString();
             state.set(State.FAILED);
             log.error("Bootstrap failed: {}", ex.toString(), ex);
+        }
+    }
+
+    /**
+     * Brings one market up: backfill history, repair any holes, replay it through a fresh engine,
+     * retire stored levels it no longer tracks, and fill in next potential lows / highs.
+     *
+     * @return whether the market is ready for live candles. One unavailable or misconfigured
+     *         market must not stop the others, so failures are logged, not thrown.
+     */
+    private boolean startMarket(MarketKey key) {
+        try {
+            if (!exchange.supportsSymbol(key.symbol())) {
+                log.warn("Skipping {}: the exchange does not list this symbol", key);
+                return false;
+            }
+            MarketEngine engine = analysisService.initialise(key);
+            if (properties.isBackfillOnStartup()) {
+                marketData.backfill(engine.market(), key);
+                marketData.healGaps(engine.market(), key);
+            }
+            analysisService.replayHistory(engine);
+            analysisService.reconcileStoredLevels(engine);
+            analysisService.fillNextPotential(engine);
+            return true;
+        } catch (Exception ex) {
+            log.error("Bootstrap failed for {}: {}", key, ex.toString(), ex);
+            // A half-replayed engine must not be picked up by a later attempt.
+            analysisService.discard(key);
+            return false;
+        }
+    }
+
+    /**
+     * Refreshes the watch list once it is due (daily by default, sooner after a failed attempt)
+     * and, if it changed, starts and stops markets to match.
+     */
+    @Scheduled(initialDelayString = "PT1M", fixedDelayString = "PT1M")
+    public void refreshWatchList() {
+        if (state.get() != State.READY || !watchList.isDue(Instant.now())) {
+            return;
+        }
+        watchList.refresh().ifPresent(change -> applyWatchList());
+    }
+
+    /**
+     * Makes the running markets match the watch list: starts markets it gained, and markets that
+     * failed to start before; stops markets it lost and retires their stored levels; then restarts
+     * the live stream if anything changed.
+     *
+     * <p>New markets are brought up first, while the live stream keeps serving the others, which
+     * takes a few seconds per market.
+     */
+    public synchronized void applyWatchList() {
+        Set<MarketKey> wanted = new LinkedHashSet<>(watchList.marketKeys());
+
+        List<MarketKey> started = new ArrayList<>();
+        for (MarketKey key : wanted) {
+            if (analysisService.engine(key).isEmpty() && startMarket(key)) {
+                started.add(key);
+            }
+        }
+        List<MarketKey> stopped = new ArrayList<>();
+        for (MarketEngine engine : List.copyOf(analysisService.allEngines())) {
+            if (!wanted.contains(engine.key())) {
+                analysisService.discard(engine.key());
+                stopped.add(engine.key());
+            }
+        }
+        if (!started.isEmpty()) {
+            notifications.retryPending();
+        }
+        retireUnwatchedMarkets();
+
+        if (started.isEmpty() && stopped.isEmpty()) {
+            return;
+        }
+        List<MarketKey> running = wanted.stream()
+                .filter(key -> analysisService.engine(key).isPresent())
+                .toList();
+        if (properties.isLiveEnabled()) {
+            liveStream.restart(running);
+        }
+        log.info("Watch list applied: {} market(s) started, {} stopped; {} market(s) running",
+                started.size(), stopped.size(), running.size());
+    }
+
+    private void retireUnwatchedMarkets() {
+        if (!watchList.isSettled()) {
+            return;
+        }
+        try {
+            analysisService.retireUnwatchedMarkets(new HashSet<>(watchList.symbols()),
+                    properties.watchedTimeframes());
+        } catch (Exception ex) {
+            log.warn("Could not retire the levels of unwatched markets: {}", ex.toString());
         }
     }
 

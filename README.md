@@ -112,8 +112,13 @@ and can be overridden by environment variable. Nothing is hardcoded.
 ```yaml
 crypto-signals:
   markets:
-    symbols: [BTCUSDT, ETHUSDT]
-    timeframes: [15m, 30m, 1h]    # each symbol x timeframe is an independent analysis
+    symbols: [BTCUSDT, ETHUSDT]   # always watched
+    volume-selection:             # ... plus the most traded other coins (on in docker-compose)
+      enabled: false
+      min-daily-volume: 5000000   # USDT a day, averaged over the last 7 days
+      max-symbols: 50             # coins in all, fixed ones included
+      keep-percent: 70            # a watched coin stays until it falls below 70% of the threshold
+    timeframes: [15m, 30m, 1h]    # each coin x timeframe is an independent analysis
     lookback: 30d                 # 24h / 7d / 30d / 365d; 0 = all available history
 
   analysis:
@@ -141,8 +146,21 @@ shows its **next potential low** (support) or **high** (resistance): the nearest
 least 1% beyond the signal price, as a percentage, in the list, in the signal's detail and on its
 chart.
 
+**Which coins.** The `symbols` are always watched. With volume selection on, the most traded other
+Binance USDT coins are added: those averaging at least 5M USDT a day over the last 7 days, highest
+first, up to 50 coins in all. Stablecoins, tokenized stocks, gold, fiat and wrapped coins are
+skipped (Binance's own tags say which). The list is checked daily while running, so new coins are
+started and fading ones stopped without a restart; a dropped coin's open levels are marked
+`EXPIRED`, its history stays. `GET /api/watchlist` and the config tab show each coin and why it is
+there. Each coin adds about three markets' worth of memory and start-up time, so raise
+`MAX_SYMBOLS` with the server in mind.
+
 `GET /api/config` returns exactly what the running engine is using, including a fingerprint that
 every stored level and signal is tagged with. Secrets are never included.
+
+Environment variables follow Spring's rule: `CRYPTO_SIGNALS_ANALYSIS_MIN_TOUCHES`, with every dash
+of the property name as an underscore. A run-together `..._MINTOUCHES` is silently ignored, so
+`EnvironmentBindingTest` checks every variable docker-compose passes.
 
 > ⚠️ **The defaults suit ~5m candles and are too tight for 4h and above.** On BTC 4h they give a
 > median hold of 2 candles; ATR-based tolerance gives 65. See the measured calibration table in
@@ -252,8 +270,8 @@ implementation of one method.
 
 ```bash
 cd backend
-mvn test                                        # 167 unit tests, no Docker needed
-mvn verify                                      # + 26 integration tests (real PostgreSQL)
+mvn test                                        # 186 unit tests, no Docker needed
+mvn verify                                      # + 29 integration tests (real PostgreSQL)
 mvn test -Dgroups=external -Dtest.excluded.groups=   # + 5 live Binance API tests
 ```
 
@@ -289,6 +307,7 @@ fails if the migrations and the entity mappings ever disagree.
 | Extreme prices | Every threshold is relative. Verified from 0.000099 to 1,000,000. |
 | Level broken then reforms | Broken levels are terminal; a new structure at that price becomes a new level with its own count. |
 | Two levels close together | Established levels (3+ touches) whose neighbouring gaps are within the timeframe's limit form one group; only the highest resistance / lowest support stays active, the rest are **superseded**. A level price passes on its way to a nearer one is superseded too (see docs/ALGORITHM.md). |
+| Coin leaves the volume watch list | Its markets stop, their open levels become `EXPIRED`; a coin just under the threshold keeps its place, so the list does not flap. If Binance cannot be asked, the stored list is kept and retried in 15 minutes. |
 | Restart with a moving lookback window | Stored levels the rebuilt engine no longer follows are marked `EXPIRED` instead of showing as active forever. |
 
 ---

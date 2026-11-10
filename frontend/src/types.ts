@@ -109,6 +109,39 @@ export interface Page<T> {
   totalPages: number
 }
 
+/** GET /api/watchlist: the analysed coins and why each one is there. */
+export interface WatchList {
+  /** VOLUME: fixed coins plus the most traded others; FIXED: only the configured coins. */
+  mode: 'VOLUME' | 'FIXED'
+  source: 'FIXED' | 'STORED' | 'EXCHANGE'
+  count: number
+  symbols: WatchedSymbol[]
+  rule?: VolumeRule
+  refreshedAt?: string
+  nextRefreshAt?: string
+  lastError?: string
+}
+
+export interface WatchedSymbol {
+  symbol: string
+  source: 'FIXED' | 'VOLUME'
+  /** Average traded value per day over the volume window, in the quote asset. */
+  dailyVolume?: number
+  selectedAt?: string
+}
+
+export interface VolumeRule {
+  quoteAsset: string
+  minDailyVolume: number
+  window: string
+  maxSymbols: number
+  keepPercent: number
+  minPriceRangePercent: number
+  excludeTags: string[]
+  excludeAssets: string[]
+  refreshInterval: string
+}
+
 /** Every filter holds several values; an empty list means "all". */
 export interface Filters {
   symbols: string[]

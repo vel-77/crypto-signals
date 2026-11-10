@@ -205,7 +205,22 @@ class ApiIT extends PostgresIntegrationTest {
                         org.hamcrest.Matchers.containsString("swing-cluster")))
                 .andExpect(jsonPath("$.notifications.telegramEnabled").value(false))
                 .andExpect(jsonPath("$.notifications.botToken").doesNotExist())
-                .andExpect(jsonPath("$.notifications.telegram").doesNotExist());
+                .andExpect(jsonPath("$.notifications.telegram").doesNotExist())
+                .andExpect(jsonPath("$.markets.symbols[0]").value("BTCUSDT"))
+                .andExpect(jsonPath("$.markets.fixedSymbols[0]").value("BTCUSDT"))
+                .andExpect(jsonPath("$.markets.volumeSelection.enabled").value(false));
+    }
+
+    @Test
+    @DisplayName("GET /api/watchlist lists the watched symbols and how they were chosen")
+    void watchList() throws Exception {
+        mvc.perform(get("/api/watchlist"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mode").value("FIXED"))
+                .andExpect(jsonPath("$.count").value(1))
+                .andExpect(jsonPath("$.symbols[0].symbol").value("BTCUSDT"))
+                .andExpect(jsonPath("$.symbols[0].source").value("FIXED"))
+                .andExpect(jsonPath("$.rule").doesNotExist());
     }
 
     @Test

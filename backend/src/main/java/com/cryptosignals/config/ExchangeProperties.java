@@ -40,11 +40,17 @@ public class ExchangeProperties {
      */
     private Duration streamStaleAfter = Duration.ofSeconds(90);
 
+    /**
+     * Where the venue publishes its category tags (stablecoin, tokenized stock, ...), used when the
+     * watch list is chosen by volume. Empty disables the lookup, and with it the tag exclusions.
+     */
+    private String symbolTagsUrl = ExchangeSettings.DEFAULT_SYMBOL_TAGS_URL;
+
     /** Adapts external configuration into the exchange layer's own settings type. */
     public ExchangeSettings toSettings() {
         return new ExchangeSettings(restBaseUrl, wsBaseUrl, connectTimeout, readTimeout,
                 klinePageSize, maxWeightPerMinute, maxRetries, retryBackoff,
-                reconnectMinBackoff, reconnectMaxBackoff, streamStaleAfter);
+                reconnectMinBackoff, reconnectMaxBackoff, streamStaleAfter, symbolTagsUrl);
     }
 
     public String getName() { return name; }
@@ -71,4 +77,6 @@ public class ExchangeProperties {
     public Duration getStreamStaleAfter() { return streamStaleAfter; }
     public void setStreamStaleAfter(Duration v) { this.streamStaleAfter = v; }
     public void setReconnectMaxBackoff(Duration v) { this.reconnectMaxBackoff = v; }
+    public String getSymbolTagsUrl() { return symbolTagsUrl; }
+    public void setSymbolTagsUrl(String v) { this.symbolTagsUrl = v; }
 }

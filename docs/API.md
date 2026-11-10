@@ -208,6 +208,51 @@ precision and no thousands separators.
 Exactly what the running engine is using, including the `configFingerprint` that every stored level
 and signal is tagged with. Credentials are never included — only whether a channel is usable.
 
+`markets.symbols` and `markets.watchedMarkets` are the coins watched right now; with volume
+selection on they change while the service runs. `markets.fixedSymbols` are the always-watched
+ones from the configuration, and `markets.volumeSelection` holds the selection settings.
+
+### `GET /api/watchlist`
+
+Which coins are analysed, and why each one is there. Every coin is analysed on every configured
+timeframe.
+
+```json
+{
+  "mode": "VOLUME",
+  "source": "EXCHANGE",
+  "count": 43,
+  "symbols": [
+    { "symbol": "BTCUSDT",  "source": "FIXED",  "dailyVolume": 1166910000 },
+    { "symbol": "PEPEUSDT", "source": "VOLUME", "dailyVolume": 54540000,
+      "selectedAt": "2026-11-10T07:54:26Z" }
+  ],
+  "rule": { "quoteAsset": "USDT", "minDailyVolume": 5000000, "window": "PT168H", "maxSymbols": 50,
+            "keepPercent": 70.0, "minPriceRangePercent": 1.0,
+            "excludeTags": ["stablecoin", "bStocks", "tCommodities"],
+            "excludeAssets": ["EUR", "WBTC", "WBETH", "BNSOL"], "refreshInterval": "PT24H" },
+  "refreshedAt": "2026-11-10T07:54:26Z",
+  "nextRefreshAt": "2026-11-11T07:54:26Z"
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `mode` | `VOLUME`: the fixed coins plus the most traded others. `FIXED`: only the configured coins (no `rule`). |
+| `source` | Where the list came from: `EXCHANGE` (worked out from Binance's volumes), `STORED` (loaded at startup; Binance not asked yet), `FIXED`. |
+| `symbols[].source` | `FIXED` (always watched) or `VOLUME` (chosen by volume). Fixed coins come first, then the chosen ones by volume. |
+| `symbols[].dailyVolume` | Average traded value per day over the volume window, in the quote asset (USDT). Absent until known. |
+| `symbols[].selectedAt` | When a `VOLUME` coin joined the list. |
+| `lastError` | Why the last refresh failed, if it did. The list is then kept as it was and retried after 15 minutes. |
+
+How coins are chosen: those averaging at least `minDailyVolume` a day over `window`, highest first,
+up to `maxSymbols` coins in all (fixed ones included). Coins Binance tags as stablecoins, tokenized
+stocks (`bStocks`) or commodities (gold), the base assets in `excludeAssets`, and coins whose price
+moved less than `minPriceRangePercent` over the window are skipped. A coin already on the list stays
+until its volume falls below `keepPercent` of the threshold, so one near the line does not come and
+go every day. A coin that leaves the list stops being analysed, and its levels still marked `ACTIVE`
+become `EXPIRED`; its history stays.
+
 ### `GET /api/status`
 
 Pipeline health: whether startup backfill finished, whether the websocket is connected, and how far

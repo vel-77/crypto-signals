@@ -3,7 +3,8 @@
 #
 # Every detection rule lives here; nothing in the engine is hardcoded. Values can be overridden per
 # environment with standard Spring mechanisms: an application-<profile>.yml, SPRING_APPLICATION_JSON,
-# or environment variables such as CRYPTO_SIGNALS_ANALYSIS_MINTOUCHES=4.
+# or environment variables such as CRYPTO_SIGNALS_ANALYSIS_MIN_TOUCHES=4 (every dash of the
+# property name becomes an underscore; a run-together CRYPTO_SIGNALS_ANALYSIS_MINTOUCHES is ignored).
 #
 # Relaxed binding means both `min-touches` and `minTouches` are accepted.
 # =================================================================================================
@@ -63,13 +64,27 @@ logging:
 crypto-signals:
 
   # -----------------------------------------------------------------------------------------------
-  # Which series to analyse. The watch list is the cross product of symbols x timeframes; each pair
-  # is an independent engine producing independent signals.
+  # Which series to analyse. The watch list is the cross product of the watched symbols x
+  # timeframes; each pair is an independent engine producing independent signals. The watched
+  # symbols are `symbols` (always watched) plus, with volume-selection on, the most traded other
+  # coins, refreshed while running.
   # -----------------------------------------------------------------------------------------------
   markets:
-    symbols:
+    symbols:                        # always watched, whatever their volume
       - BTCUSDT
       - ETHUSDT
+    volume-selection:
+      enabled: false                # docker-compose turns this on
+      quote-asset: USDT
+      min-daily-volume: 5000000     # average traded value per day a coin needs to join, in USDT
+      window: 7d                    # volume is averaged over this; Binance reports at most 7d
+      max-symbols: 50               # most coins watched in all, fixed symbols included; 0 = no limit
+      keep-percent: 70              # a watched coin stays until it falls below 70% of what joining takes
+      min-price-range-percent: 1.0  # skip coins that moved less than this over the window
+      exclude-tags: [stablecoin, bStocks, tCommodities]   # Binance's tags: stablecoins, stocks, gold
+      exclude-assets: [EUR, WBTC, WBETH, BNSOL]           # fiat, wrapped and staked copies
+      refresh-interval: 24h
+      retry-interval: 15m           # after the exchange could not be asked
     timeframes:
       - 15m
       - 30m
@@ -96,6 +111,9 @@ crypto-signals:
     reconnect-min-backoff: 1s
     reconnect-max-backoff: 2m
     stream-stale-after: 90s         # no data for this long means the live connection is dead
+    # Binance's public product list: the only source of its stablecoin / stock / commodity tags.
+    # Empty disables the lookup (and with it markets.volume-selection.exclude-tags).
+    symbol-tags-url: https://www.binance.com/bapi/asset/v2/public/asset-service/product/get-products?includeEtf=true
 
   # -----------------------------------------------------------------------------------------------
   # The detection rules. See docs/ALGORITHM.md for what each one means and why it exists.

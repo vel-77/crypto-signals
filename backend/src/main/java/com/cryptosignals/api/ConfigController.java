@@ -6,6 +6,7 @@ import com.cryptosignals.config.ExchangeProperties;
 import com.cryptosignals.config.MarketProperties;
 import com.cryptosignals.config.NextPotentialProperties;
 import com.cryptosignals.config.NotificationProperties;
+import com.cryptosignals.marketdata.WatchList;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,17 +27,19 @@ public class ConfigController {
     private final NotificationProperties notifications;
     private final LevelAnalysisEngineFactory engineFactory;
     private final NextPotentialProperties nextPotential;
+    private final WatchList watchList;
 
     public ConfigController(AnalysisProperties analysis, MarketProperties markets,
                             ExchangeProperties exchange, NotificationProperties notifications,
                             LevelAnalysisEngineFactory engineFactory,
-                            NextPotentialProperties nextPotential) {
+                            NextPotentialProperties nextPotential, WatchList watchList) {
         this.analysis = analysis;
         this.markets = markets;
         this.exchange = exchange;
         this.notifications = notifications;
         this.engineFactory = engineFactory;
         this.nextPotential = nextPotential;
+        this.watchList = watchList;
     }
 
     @GetMapping
@@ -50,10 +53,28 @@ public class ConfigController {
         root.put("detectionStrategy", engineFactory.detectionStrategyName());
 
         Map<String, Object> marketInfo = new LinkedHashMap<>();
-        marketInfo.put("symbols", markets.getSymbols());
+        // The symbols watched right now: with volume selection on, they change while running.
+        // GET /api/watchlist says why each one is there.
+        marketInfo.put("symbols", watchList.symbols());
+        marketInfo.put("fixedSymbols", markets.fixedSymbols());
         marketInfo.put("timeframes", markets.getTimeframes());
         marketInfo.put("lookback", markets.isUnlimitedLookback() ? "unlimited" : markets.getLookback().toString());
-        marketInfo.put("watchedMarkets", markets.toMarketKeys().stream().map(Object::toString).toList());
+        marketInfo.put("watchedMarkets", watchList.marketKeys().stream().map(Object::toString).toList());
+        MarketProperties.VolumeSelection selection = markets.getVolumeSelection();
+        Map<String, Object> selectionInfo = new LinkedHashMap<>();
+        selectionInfo.put("enabled", selection.isEnabled());
+        if (selection.isEnabled()) {
+            selectionInfo.put("quoteAsset", selection.getQuoteAsset());
+            selectionInfo.put("minDailyVolume", selection.getMinDailyVolume());
+            selectionInfo.put("window", selection.getWindow().toString());
+            selectionInfo.put("maxSymbols", selection.getMaxSymbols());
+            selectionInfo.put("keepPercent", selection.getKeepPercent());
+            selectionInfo.put("minPriceRangePercent", selection.getMinPriceRangePercent());
+            selectionInfo.put("excludeTags", selection.getExcludeTags());
+            selectionInfo.put("excludeAssets", selection.getExcludeAssets());
+            selectionInfo.put("refreshInterval", selection.getRefreshInterval().toString());
+        }
+        marketInfo.put("volumeSelection", selectionInfo);
         marketInfo.put("backfillOnStartup", markets.isBackfillOnStartup());
         marketInfo.put("liveEnabled", markets.isLiveEnabled());
         root.put("markets", marketInfo);

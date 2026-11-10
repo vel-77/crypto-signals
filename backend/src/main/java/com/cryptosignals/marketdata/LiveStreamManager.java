@@ -32,6 +32,8 @@ public class LiveStreamManager implements CandleStreamListener {
 
     private final AtomicLong closedCandles = new AtomicLong();
     private final AtomicLong partialCandles = new AtomicLong();
+    /** Reconnects of subscriptions replaced by {@link #restart}. */
+    private final AtomicLong earlierReconnects = new AtomicLong();
     private volatile StreamSubscription subscription;
     private volatile Instant lastCandleAt;
 
@@ -49,6 +51,28 @@ public class LiveStreamManager implements CandleStreamListener {
             return;
         }
         log.info("Starting live stream for {} market(s)", markets.size());
+        subscription = exchange.streamCandles(markets, this);
+    }
+
+    /**
+     * Replaces the stream with one for exactly these markets, after the watch list changed.
+     *
+     * <p>A fresh subscription rather than subscribe / unsubscribe messages on the open sockets:
+     * the list changes about once a day, and opening the connections again is the path that is
+     * exercised on every reconnect anyway. Candles that close while it reconnects are recovered
+     * like after any other reconnect (see {@link MarketAnalysisService#ingestLiveCandle}).
+     */
+    public synchronized void restart(List<MarketKey> markets) {
+        if (subscription != null) {
+            earlierReconnects.addAndGet(subscription.reconnectCount());
+            subscription.close();
+            subscription = null;
+        }
+        if (markets.isEmpty()) {
+            log.warn("No markets left to watch; live streaming stopped");
+            return;
+        }
+        log.info("Restarting live stream for {} market(s)", markets.size());
         subscription = exchange.streamCandles(markets, this);
     }
 
@@ -84,7 +108,7 @@ public class LiveStreamManager implements CandleStreamListener {
 
     public long reconnectCount() {
         StreamSubscription current = subscription;
-        return current == null ? 0 : current.reconnectCount();
+        return earlierReconnects.get() + (current == null ? 0 : current.reconnectCount());
     }
 
     public long closedCandlesReceived() {

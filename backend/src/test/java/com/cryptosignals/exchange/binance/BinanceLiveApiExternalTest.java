@@ -44,6 +44,23 @@ class BinanceLiveApiExternalTest {
         }
 
         @Test
+        @DisplayName("reports 7-day volumes and tags of the USDT pairs")
+        void tradingActivity() {
+            List<com.cryptosignals.exchange.SymbolActivity> activity =
+                    client().tradingActivity("USDT", Duration.ofDays(7));
+
+            assertThat(activity).hasSizeGreaterThan(100);
+            assertThat(activity).filteredOn(a -> a.symbol().equals("BTCUSDT")).singleElement()
+                    .satisfies(btc -> {
+                        assertThat(btc.baseAsset()).isEqualTo("BTC");
+                        assertThat(btc.quoteVolume()).isGreaterThan(1e8);
+                        assertThat(btc.priceRangePercent()).isPositive();
+                    });
+            assertThat(activity).filteredOn(a -> a.symbol().equals("USDCUSDT")).singleElement()
+                    .satisfies(usdc -> assertThat(usdc.tags()).contains("stablecoin"));
+        }
+
+        @Test
         @DisplayName("knows which symbols are tradable")
         void symbolSupport() {
             BinanceExchangeClient client = client();

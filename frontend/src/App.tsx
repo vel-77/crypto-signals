@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type QueryValue } from './api'
-import type { Filters as FilterState, Level, NextPotentialRule, Signal } from './types'
+import type { Filters as FilterState, Level, NextPotentialRule, Signal, WatchList } from './types'
 import { Filters } from './components/Filters'
 import { SignalDetail } from './components/SignalDetail'
 import { NextPotentialCell } from './components/NextPotential'
 import { LevelDetail } from './components/LevelDetail'
 import { MarketPanel } from './components/MarketPanel'
+import { WatchListView } from './components/WatchListView'
 import { price, timestamp } from './components/format'
 import { allTimeZones, useTimeZone, zoneLabel } from './timezone'
 
@@ -64,6 +65,7 @@ export default function App() {
   const [selectedSignal, setSelectedSignal] = useState<Signal | null>(null)
   const [selectedLevel, setSelectedLevel] = useState<Level | null>(null)
   const [config, setConfig] = useState<Record<string, unknown> | null>(null)
+  const [watchList, setWatchList] = useState<WatchList | null>(null)
   const [nextPotentialRule, setNextPotentialRule] = useState<NextPotentialRule | null>(null)
   const [status, setStatus] = useState<Record<string, unknown> | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -94,7 +96,9 @@ export default function App() {
         setLevels(page.items)
         setTotalItems(page.totalItems)
       } else {
-        setConfig(await api.config())
+        const [c, w] = await Promise.all([api.config(), api.watchList()])
+        setConfig(c)
+        setWatchList(w)
       }
     } catch (e) {
       setError((e as Error).message)
@@ -108,16 +112,20 @@ export default function App() {
   }, [load])
 
   // The filters offer only what the server actually watches, so they never suggest a market
-  // that has no data.
+  // that has no data. Re-read now and then: the server adjusts its coin list by trading volume.
   useEffect(() => {
-    api.config()
-      .then((c) => {
-        const markets = c.markets as { symbols?: string[]; timeframes?: string[] } | undefined
-        setSymbols(markets?.symbols ?? [])
-        setTimeframes(markets?.timeframes ?? [])
-        setNextPotentialRule((c.nextPotential as NextPotentialRule | undefined) ?? null)
-      })
-      .catch(() => {})
+    const read = () =>
+      api.config()
+        .then((c) => {
+          const markets = c.markets as { symbols?: string[]; timeframes?: string[] } | undefined
+          setSymbols(markets?.symbols ?? [])
+          setTimeframes(markets?.timeframes ?? [])
+          setNextPotentialRule((c.nextPotential as NextPotentialRule | undefined) ?? null)
+        })
+        .catch(() => {})
+    void read()
+    const handle = setInterval(read, 10 * 60_000)
+    return () => clearInterval(handle)
   }, [])
 
   // Poll the pipeline status so the header reflects reality without a manual refresh.
@@ -272,6 +280,7 @@ export default function App() {
 
       {tab === 'config' && (
         <div className="full-pane">
+          <WatchListView list={watchList} timeZone={timeZone} />
           <div className="section-title" style={{ padding: '0 0 8px' }}>
             Effective detection rules — set by the administrator on the server
           </div>

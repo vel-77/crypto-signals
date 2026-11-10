@@ -52,7 +52,7 @@ class StreamLivenessTest {
         ExchangeSettings settings = new ExchangeSettings(
                 "http://127.0.0.1:1", "ws://127.0.0.1:1",
                 Duration.ofSeconds(2), Duration.ofSeconds(2), 1000, 2400, 1, Duration.ofSeconds(1),
-                Duration.ofMinutes(10), Duration.ofMinutes(10), Duration.ofMillis(STALE_MILLIS));
+                Duration.ofMinutes(10), Duration.ofMinutes(10), Duration.ofMillis(STALE_MILLIS), "");
         return new BinanceCandleStream(settings, new ObjectMapper(),
                 List.of(MarketKey.of("BTCUSDT", "15m")), new CandleStreamListener() {
                     @Override

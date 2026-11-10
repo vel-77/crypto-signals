@@ -23,7 +23,8 @@ public record ExchangeSettings(
         Duration retryBackoff,
         Duration reconnectMinBackoff,
         Duration reconnectMaxBackoff,
-        Duration streamStaleAfter) {
+        Duration streamStaleAfter,
+        String symbolTagsUrl) {
 
     /** Sensible Binance-shaped defaults, handy for tests. */
     public static ExchangeSettings defaults() {
@@ -31,12 +32,32 @@ public record ExchangeSettings(
                 "https://api.binance.com", "wss://stream.binance.com:9443",
                 Duration.ofSeconds(10), Duration.ofSeconds(30),
                 1000, 2400, 5, Duration.ofSeconds(1),
-                Duration.ofSeconds(1), Duration.ofMinutes(2), Duration.ofSeconds(90));
+                Duration.ofSeconds(1), Duration.ofMinutes(2), Duration.ofSeconds(90),
+                DEFAULT_SYMBOL_TAGS_URL);
     }
+
+    /**
+     * Binance's public product list, the one its own markets page reads. It is the only place that
+     * says which symbols are stablecoins, tokenized stocks or commodities.
+     */
+    public static final String DEFAULT_SYMBOL_TAGS_URL =
+            "https://www.binance.com/bapi/asset/v2/public/asset-service/product/get-products?includeEtf=true";
 
     public ExchangeSettings withWsBaseUrl(String url) {
         return new ExchangeSettings(restBaseUrl, url, connectTimeout, readTimeout, klinePageSize,
                 maxWeightPerMinute, maxRetries, retryBackoff, reconnectMinBackoff, reconnectMaxBackoff,
-                streamStaleAfter);
+                streamStaleAfter, symbolTagsUrl);
+    }
+
+    public ExchangeSettings withRestBaseUrl(String url) {
+        return new ExchangeSettings(url, wsBaseUrl, connectTimeout, readTimeout, klinePageSize,
+                maxWeightPerMinute, maxRetries, retryBackoff, reconnectMinBackoff, reconnectMaxBackoff,
+                streamStaleAfter, symbolTagsUrl);
+    }
+
+    public ExchangeSettings withSymbolTagsUrl(String url) {
+        return new ExchangeSettings(restBaseUrl, wsBaseUrl, connectTimeout, readTimeout, klinePageSize,
+                maxWeightPerMinute, maxRetries, retryBackoff, reconnectMinBackoff, reconnectMaxBackoff,
+                streamStaleAfter, url);
     }
 }

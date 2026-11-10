@@ -8,6 +8,7 @@ import com.cryptosignals.exchange.ExchangeSettings;
 import com.cryptosignals.exchange.ExchangeClient;
 import com.cryptosignals.exchange.ExchangeException;
 import com.cryptosignals.exchange.StreamSubscription;
+import com.cryptosignals.exchange.SymbolActivity;
 import com.cryptosignals.exchange.WeightedRateLimiter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,9 +25,16 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Binance spot implementation of {@link ExchangeClient}.
@@ -55,6 +63,18 @@ public class BinanceExchangeClient implements ExchangeClient {
     private static final int KLINES_WEIGHT = 2;
     private static final int EXCHANGE_INFO_WEIGHT = 20;
     private static final int SERVER_TIME_WEIGHT = 1;
+
+    /** Symbols per rolling-window ticker request; the most Binance accepts in one call. */
+    private static final int TICKER_BATCH = 100;
+    /** Published weight of GET /api/v3/ticker: 4 per symbol, capped at 200 per request. */
+    private static final int TICKER_WEIGHT_PER_SYMBOL = 4;
+    private static final int TICKER_MAX_WEIGHT = 200;
+
+    /**
+     * Symbols Binance accepts in a list query and in a stream name. A few meme coins are listed
+     * under Chinese characters; Binance rejects the whole request if one of them is in the list.
+     */
+    private static final Pattern PLAIN_SYMBOL = Pattern.compile("[A-Z0-9]{2,20}");
 
     private final ExchangeSettings settings;
     private final ObjectMapper mapper;
@@ -188,6 +208,112 @@ public class BinanceExchangeClient implements ExchangeClient {
                 return false;
             }
         });
+    }
+
+    /**
+     * Three lookups: which symbols trade against the quote asset ({@code exchangeInfo}), how much
+     * each traded over the window (the rolling-window ticker, in batches of 100), and the category
+     * tags from the public product list. About 1,300 weight for Binance's ~500 USDT pairs.
+     */
+    @Override
+    public List<SymbolActivity> tradingActivity(String quoteAsset, Duration window) {
+        String quote = quoteAsset.trim().toUpperCase(Locale.ROOT);
+        String windowSize = windowSize(window);
+
+        JsonNode info = getJson(settings.restBaseUrl()
+                + "/api/v3/exchangeInfo?permissions=SPOT&symbolStatus=TRADING&showPermissionSets=false",
+                EXCHANGE_INFO_WEIGHT);
+        Map<String, String> baseAssets = new LinkedHashMap<>();
+        int skipped = 0;
+        for (JsonNode node : info.path("symbols")) {
+            if (!"TRADING".equals(node.path("status").asText())
+                    || !quote.equals(node.path("quoteAsset").asText())
+                    || !node.path("isSpotTradingAllowed").asBoolean(true)) {
+                continue;
+            }
+            String symbol = node.path("symbol").asText();
+            if (!PLAIN_SYMBOL.matcher(symbol).matches()) {
+                skipped++;
+                continue;
+            }
+            baseAssets.put(symbol, node.path("baseAsset").asText());
+        }
+        if (baseAssets.isEmpty()) {
+            throw new ExchangeException("Binance listed no symbols trading against " + quote, null);
+        }
+        if (skipped > 0) {
+            log.debug("Ignoring {} {} symbol(s) whose names Binance does not accept in a list query",
+                    skipped, quote);
+        }
+
+        Map<String, Set<String>> tags = symbolTags();
+
+        List<String> symbols = new ArrayList<>(baseAssets.keySet());
+        List<SymbolActivity> activity = new ArrayList<>(symbols.size());
+        for (int from = 0; from < symbols.size(); from += TICKER_BATCH) {
+            List<String> batch = symbols.subList(from, Math.min(symbols.size(), from + TICKER_BATCH));
+            String list = batch.stream().map(symbol -> "\"" + symbol + "\"")
+                    .collect(Collectors.joining(",", "[", "]"));
+            String url = settings.restBaseUrl() + "/api/v3/ticker?type=MINI&windowSize=" + windowSize
+                    + "&symbols=" + URLEncoder.encode(list, StandardCharsets.UTF_8);
+            JsonNode rows = getJson(url,
+                    Math.min(TICKER_MAX_WEIGHT, TICKER_WEIGHT_PER_SYMBOL * batch.size()));
+            for (JsonNode row : rows) {
+                String symbol = row.path("symbol").asText();
+                String base = baseAssets.get(symbol);
+                if (base == null) {
+                    continue;
+                }
+                activity.add(new SymbolActivity(symbol, base,
+                        row.path("quoteVolume").asDouble(), row.path("highPrice").asDouble(),
+                        row.path("lowPrice").asDouble(), tags.getOrDefault(symbol, Set.of())));
+            }
+        }
+        log.debug("Fetched {} trading activity for {} {} symbol(s)", windowSize, activity.size(), quote);
+        return activity;
+    }
+
+    /** Symbol to tags, from the public product list. Empty when no tags URL is configured. */
+    private Map<String, Set<String>> symbolTags() {
+        String url = settings.symbolTagsUrl();
+        if (url == null || url.isBlank()) {
+            return Map.of();
+        }
+        // A website endpoint, not part of the metered REST API.
+        JsonNode data = getJson(url, 0).path("data");
+        if (!data.isArray() || data.isEmpty()) {
+            throw new ExchangeException("Binance product list had no data", null);
+        }
+        Map<String, Set<String>> tags = new HashMap<>();
+        for (JsonNode product : data) {
+            Set<String> productTags = new HashSet<>();
+            for (JsonNode tag : product.path("tags")) {
+                if (!tag.asText().isBlank()) {
+                    productTags.add(tag.asText());
+                }
+            }
+            tags.put(product.path("s").asText(), productTags);
+        }
+        return tags;
+    }
+
+    /** Binance writes rolling windows as 1m-59m, 1h-23h or 1d-7d. */
+    static String windowSize(Duration window) {
+        long minutes = window.toMinutes();
+        if (window.isNegative() || !window.equals(Duration.ofMinutes(minutes))) {
+            throw new IllegalArgumentException("Volume window must be whole minutes, got " + window);
+        }
+        if (minutes % 1440 == 0 && minutes / 1440 >= 1 && minutes / 1440 <= 7) {
+            return minutes / 1440 + "d";
+        }
+        if (minutes % 60 == 0 && minutes / 60 >= 1 && minutes / 60 <= 23) {
+            return minutes / 60 + "h";
+        }
+        if (minutes >= 1 && minutes <= 59) {
+            return minutes + "m";
+        }
+        throw new IllegalArgumentException(
+                "Binance volume windows are 1-59 minutes, 1-23 hours or 1-7 days, got " + window);
     }
 
     /**

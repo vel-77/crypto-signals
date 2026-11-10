@@ -8,6 +8,7 @@ import com.cryptosignals.config.AnalysisProperties;
 import com.cryptosignals.config.ExchangeProperties;
 import com.cryptosignals.domain.Candle;
 import com.cryptosignals.domain.MarketKey;
+import com.cryptosignals.domain.Timeframe;
 import com.cryptosignals.exchange.ExchangeClient;
 import com.cryptosignals.notifications.NotificationService;
 import com.cryptosignals.persistence.AnalysisResultStore;
@@ -23,6 +24,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -317,6 +319,52 @@ public class MarketAnalysisService {
             }
         }
         return total;
+    }
+
+    /**
+     * Stops analysing a market: its engine is dropped, so live candles for it are ignored until it
+     * is initialised again. Everything stored about it stays.
+     */
+    public void discard(MarketKey key) {
+        engines.remove(key);
+    }
+
+    /**
+     * Retires the stored levels of markets taken off the watch list. Nothing updates them any more,
+     * so an ACTIVE row would show as a live level forever: every ACTIVE level becomes EXPIRED, and
+     * its ACTIVE signals with it, exactly as for a level the engine stopped tracking (see
+     * {@link #reconcileStoredLevels}). If the market is watched again, its replay brings back the
+     * levels that are still active.
+     *
+     * <p>Only markets on a watched timeframe: data of a timeframe taken off the configuration
+     * entirely is left as it is.
+     *
+     * @return how many levels were retired
+     */
+    public int retireUnwatchedMarkets(Set<String> watchedSymbols, Collection<Timeframe> watchedTimeframes) {
+        int retired = 0;
+        for (MarketEntity market : markets.findAll()) {
+            if (!market.getExchange().equals(exchangeProperties.getName())
+                    || watchedSymbols.contains(market.getSymbol())) {
+                continue;
+            }
+            MarketKey key;
+            try {
+                key = market.toKey();
+            } catch (IllegalArgumentException ex) {
+                continue;
+            }
+            if (!watchedTimeframes.contains(key.timeframe()) || engines.containsKey(key)) {
+                continue;
+            }
+            AnalysisResultStore.Reconciliation outcome = store.reconcileWithEngine(market.getId(), Set.of());
+            if (outcome.changedAnything()) {
+                log.info("{} is no longer watched: {} level(s) marked EXPIRED, {} signal(s) with them",
+                        key, outcome.levelsRetired(), outcome.signalsRetired());
+            }
+            retired += outcome.levelsRetired();
+        }
+        return retired;
     }
 
     public Optional<MarketEngine> engine(MarketKey key) {

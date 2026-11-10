@@ -4,6 +4,7 @@ import com.cryptosignals.domain.Candle;
 import com.cryptosignals.domain.MarketKey;
 import com.cryptosignals.domain.Timeframe;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
@@ -44,4 +45,14 @@ public interface ExchangeClient {
 
     /** Whether the venue currently lists this symbol for trading. */
     boolean supportsSymbol(String symbol);
+
+    /**
+     * Every spot symbol currently trading against {@code quoteAsset}, with how much of it traded
+     * over the trailing {@code window} and the venue's category tags. Used to choose which markets
+     * to watch.
+     *
+     * @throws ExchangeException if any part of the answer could not be fetched; a partial list
+     *                           would make coins look inactive when they are not
+     */
+    List<SymbolActivity> tradingActivity(String quoteAsset, Duration window);
 }

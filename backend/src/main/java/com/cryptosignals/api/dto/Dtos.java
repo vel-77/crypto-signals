@@ -182,6 +182,36 @@ public final class Dtos {
     }
 
     /** A slice of a larger result set. */
+    /**
+     * The watched symbols and how they were chosen.
+     *
+     * @param mode        VOLUME when coins are chosen by trading volume on top of the fixed ones,
+     *                    FIXED when only the configured symbols are watched
+     * @param source      where the current list came from: FIXED, STORED (loaded at startup, the
+     *                    exchange not asked yet) or EXCHANGE
+     * @param symbols     fixed symbols first, in configured order, then the chosen ones by volume
+     * @param rule        the selection settings; absent in FIXED mode
+     * @param lastError   why the last refresh failed; absent after a successful one
+     */
+    public record WatchListDto(String mode, String source, int count, List<WatchedSymbolDto> symbols,
+                               VolumeRuleDto rule, Instant refreshedAt, Instant nextRefreshAt,
+                               String lastError) {
+    }
+
+    /**
+     * @param source      FIXED (from the configuration) or VOLUME (chosen by volume)
+     * @param dailyVolume average traded value per day over the volume window, in the quote asset;
+     *                    absent when not known yet
+     * @param selectedAt  when a VOLUME coin joined the list
+     */
+    public record WatchedSymbolDto(String symbol, String source, BigDecimal dailyVolume, Instant selectedAt) {
+    }
+
+    public record VolumeRuleDto(String quoteAsset, BigDecimal minDailyVolume, String window, int maxSymbols,
+                                double keepPercent, double minPriceRangePercent, List<String> excludeTags,
+                                List<String> excludeAssets, String refreshInterval) {
+    }
+
     public record PageDto<T>(List<T> items, int page, int size, long totalItems, int totalPages) {
 
         public static <T> PageDto<T> of(org.springframework.data.domain.Page<T> page) {

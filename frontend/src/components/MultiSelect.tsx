@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 
+/** Lists longer than this get a search box: the symbol list can hold dozens of coins. */
+const SEARCH_FROM = 10
+
 export interface Option {
   value: string
   label: string
@@ -21,13 +24,17 @@ interface Props {
  */
 export function MultiSelect({ id, label, options, selected, onChange }: Props) {
   const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
 
   // Only values that exist among the options count; a stale saved value never shows as selected.
   const active = selected.filter((v) => options.some((o) => o.value === v))
 
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      setSearch('')
+      return
+    }
     const onDown = (e: MouseEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
     }
@@ -42,6 +49,10 @@ export function MultiSelect({ id, label, options, selected, onChange }: Props) {
 
   const toggle = (value: string) =>
     onChange(active.includes(value) ? active.filter((v) => v !== value) : [...active, value])
+
+  const searchable = options.length > SEARCH_FROM
+  const term = search.trim().toLowerCase()
+  const shown = term ? options.filter((o) => o.label.toLowerCase().includes(term)) : options
 
   const summary =
     active.length === 0
@@ -66,10 +77,26 @@ export function MultiSelect({ id, label, options, selected, onChange }: Props) {
       </button>
       {open && (
         <div className="ms-panel" role="listbox" aria-multiselectable="true">
+          {searchable && (
+            <input
+              className="ms-search"
+              type="search"
+              placeholder={`Search ${options.length}…`}
+              aria-label={`Search ${label.toLowerCase()}`}
+              value={search}
+              autoFocus
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter ticks the only match, so typing "pepe" + Enter is enough.
+                if (e.key === 'Enter' && shown.length === 1) toggle(shown[0].value)
+              }}
+            />
+          )}
           <button type="button" className="ms-clear" onClick={() => onChange([])}>
             {active.length ? 'Clear — show all' : 'Showing all'}
           </button>
-          {options.map((o) => (
+          {shown.length === 0 && <div className="ms-none">No match</div>}
+          {shown.map((o) => (
             <label key={o.value} className="ms-option">
               <input type="checkbox" checked={active.includes(o.value)} onChange={() => toggle(o.value)} />
               <span>{o.label}</span>

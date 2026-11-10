@@ -1,4 +1,4 @@
-import type { Candle, Level, Page, Signal } from './types'
+import type { Candle, Level, Page, Signal, WatchList } from './types'
 
 const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
@@ -54,4 +54,6 @@ export const api = {
   config: () => get<Record<string, unknown>>('/config'),
 
   status: () => get<Record<string, unknown>>('/status'),
+
+  watchList: () => get<WatchList>('/watchlist'),
 }
