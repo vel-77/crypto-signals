@@ -5,7 +5,7 @@ import { useTimeZone } from '../timezone'
 import { LiveChart } from './LiveChart'
 import { LevelFate, SupersededNote } from './LevelFacts'
 import { TouchTable } from './TouchTable'
-import { price, timestamp } from './format'
+import { knownAt, price } from './format'
 
 export function LevelDetail({ level }: { level: Level }) {
   const { timeZone } = useTimeZone()
@@ -51,7 +51,7 @@ export function LevelDetail({ level }: { level: Level }) {
           </div>
           <div>
             <div className="stat-label">First seen</div>
-            <div className="stat-value">{timestamp(level.firstSeenAt, timeZone)}</div>
+            <div className="stat-value">{knownAt(level.firstSeenAt, level.timeframe, timeZone)}</div>
           </div>
           <LevelFate level={detail} />
         </div>

@@ -7,8 +7,8 @@ import { NextPotentialCell } from './components/NextPotential'
 import { LevelDetail } from './components/LevelDetail'
 import { MarketPanel } from './components/MarketPanel'
 import { WatchListView } from './components/WatchListView'
-import { price, timestamp } from './components/format'
-import { allTimeZones, useTimeZone, zoneLabel } from './timezone'
+import { knownAt, price } from './components/format'
+import { useTimeZone, zoneLabel, zoneOptions } from './timezone'
 
 type Tab = 'signals' | 'levels' | 'config'
 
@@ -159,7 +159,7 @@ export default function App() {
           <label className="tz-picker" title="Times are shown in this zone. Saved in this browser only.">
             <span className="faint">Time zone</span>
             <select value={timeZone} onChange={(e) => setTimeZone(e.target.value)}>
-              {allTimeZones().map((z) => <option key={z} value={z}>{z}</option>)}
+              {zoneOptions().map((o) => <option key={o.zone} value={o.zone}>{o.label}</option>)}
             </select>
           </label>
           {bootstrap && <span className="pill">{bootstrap.toLowerCase()}</span>}
@@ -194,7 +194,7 @@ export default function App() {
               <table>
                 <thead>
                   <tr>
-                    <th>Detected ({tz})</th>
+                    <th title="When the signal fired: the close of the candle that completed it">Detected ({tz})</th>
                     <th>Symbol</th>
                     <th>TF</th>
                     <th>Type</th>
@@ -208,7 +208,7 @@ export default function App() {
                 <tbody>
                   {signals.map((s) => (
                     <tr key={s.id} aria-selected={selectedSignal?.id === s.id} onClick={() => setSelectedSignal(s)}>
-                      <td className="num">{timestamp(s.detectedAt, timeZone)}</td>
+                      <td className="num">{knownAt(s.detectedAt, s.timeframe, timeZone)}</td>
                       <td>{s.symbol}</td>
                       <td className="num faint">{s.timeframe}</td>
                       <td className={`type-${s.type}`}>{s.type === 'RESISTANCE' ? 'RES' : 'SUP'}</td>
@@ -242,7 +242,7 @@ export default function App() {
               <table>
                 <thead>
                   <tr>
-                    <th>First seen ({tz})</th>
+                    <th title="When the level was first found: the close of the candle that formed it">First seen ({tz})</th>
                     <th>Symbol</th>
                     <th>TF</th>
                     <th>Type</th>
@@ -255,7 +255,7 @@ export default function App() {
                 <tbody>
                   {levels.map((l) => (
                     <tr key={l.id} aria-selected={selectedLevel?.id === l.id} onClick={() => setSelectedLevel(l)}>
-                      <td className="num">{timestamp(l.firstSeenAt, timeZone)}</td>
+                      <td className="num">{knownAt(l.firstSeenAt, l.timeframe, timeZone)}</td>
                       <td>{l.symbol}</td>
                       <td className="num faint">{l.timeframe}</td>
                       <td className={`type-${l.type}`}>{l.type === 'RESISTANCE' ? 'RES' : 'SUP'}</td>

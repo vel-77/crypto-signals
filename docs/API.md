@@ -94,6 +94,13 @@ too. See docs/ALGORITHM.md, "Next potential low / high".
 `candlesSincePrevious` is `-1` for the first touch. `closed: false` means the interaction is still
 in progress — its extreme and rejection may still move.
 
+Times are UTC instants, and every candle-based time is the **open time** of its candle, as Binance
+labels candles: `touchAt`, `detectedAt`, and on levels `firstSeenAt`, `breakout.confirmedAt` and
+`supersededAt`. An event is only known once its candle has closed, one `timeframe` later: the
+signal above (5m, `detectedAt` 11:00) fired at 11:05. The web app and the Telegram alert show that
+close time for detected, first-seen, breakout and superseded times, and the open time for touches,
+which is where the chart draws them.
+
 ---
 
 ## Levels

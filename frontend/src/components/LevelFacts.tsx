@@ -1,6 +1,6 @@
 import type { Level } from '../types'
 import { useTimeZone } from '../timezone'
-import { price, timestamp } from './format'
+import { knownAt, price } from './format'
 
 /** The "what happened to this level since" facts shared by both detail panels. */
 export function LevelFate({ level }: { level: Level | null }) {
@@ -10,13 +10,13 @@ export function LevelFate({ level }: { level: Level | null }) {
     <>
       <div>
         <div className="stat-label">Breakout</div>
-        <div className="stat-value">{level.breakout ? timestamp(level.breakout.confirmedAt, timeZone) : 'none'}</div>
+        <div className="stat-value">{level.breakout ? knownAt(level.breakout.confirmedAt, level.timeframe, timeZone) : 'none'}</div>
       </div>
       {level.status === 'SUPERSEDED' && (
         <div>
           <div className="stat-label">Superseded</div>
           <div className="stat-value">
-            {timestamp(level.supersededAt, timeZone)}
+            {knownAt(level.supersededAt, level.timeframe, timeZone)}
             {level.supersededByPrice && <span className="dim"> · by {price(level.supersededByPrice)}</span>}
           </div>
         </div>

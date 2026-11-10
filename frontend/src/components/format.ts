@@ -24,6 +24,16 @@ export function timestamp(iso: string | null | undefined, zone: string): string 
   return formatInZone(Date.parse(iso), zone)
 }
 
+/**
+ * When something found on a candle became known: that candle's close. The server records events
+ * by the open time of their candle, which is where the chart draws them; but a signal on the 14:00
+ * 1h candle only fires at 15:00, and showing 14:00 as "detected" reads like a clock an hour off.
+ */
+export function knownAt(iso: string | null | undefined, timeframe: string, zone: string): string {
+  if (!iso) return '—'
+  return formatInZone(Date.parse(iso) + (TIMEFRAME_MILLIS[timeframe] ?? 0), zone)
+}
+
 export function percent(value: number, digits = 2): string {
   return `${value.toFixed(digits)}%`
 }

@@ -13,7 +13,7 @@ export function TouchTable({ touches }: { touches: Touch[] }) {
       <thead>
         <tr>
           <th>#</th>
-          <th>Time ({zoneLabel(timeZone)})</th>
+          <th title="Opening time of the candle, as labelled on the chart">Candle ({zoneLabel(timeZone)})</th>
           <th>Price</th>
           <th>Distance</th>
           <th>Gap</th>

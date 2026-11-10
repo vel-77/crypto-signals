@@ -92,6 +92,43 @@ export function toChartSeconds(epochMillis: number, zone: string): number {
   return Math.floor((epochMillis + zoneOffsetMillis(epochMillis, zone)) / 1000)
 }
 
+/**
+ * Chart times for candles fed in time order, kept strictly increasing as the chart requires.
+ *
+ * <p>Shifting by the zone's offset repeats an hour when the clocks go back (Europe in late October,
+ * the US in early November): two candles then land on the same time, or one before the other. Such
+ * a candle is placed one second after the previous one instead, so the order holds and the label
+ * still reads the right minute to within that hour. Asking again for a candle already placed — the
+ * live candle updating — returns the same time.
+ */
+export function chartClock(zone: string): (openMillis: number) => number {
+  const placed = new Map<number, number>()
+  let last = -Infinity
+  return (openMillis: number) => {
+    const known = placed.get(openMillis)
+    if (known !== undefined) return known
+    let time = toChartSeconds(openMillis, zone)
+    if (time <= last) time = last + 1
+    last = time
+    placed.set(openMillis, time)
+    return time
+  }
+}
+
+let zoneOptionCache: { zone: string; label: string }[] | null = null
+
+/** The zones for the picker, each labelled with its current offset: "Asia/Yerevan (GMT+4)". */
+export function zoneOptions(): { zone: string; label: string }[] {
+  if (!zoneOptionCache) {
+    zoneOptionCache = allTimeZones().map((zone) => {
+      const offset = zoneLabel(zone)
+      const name = zone.replaceAll('_', ' ')
+      return { zone, label: offset === zone ? name : `${name} (${offset})` }
+    })
+  }
+  return zoneOptionCache
+}
+
 /** Short label such as "UTC" or "GMT+4". */
 export function zoneLabel(zone: string): string {
   if (zone === 'UTC') return 'UTC'

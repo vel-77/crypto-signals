@@ -53,8 +53,11 @@ public class SignalFormatter {
         out.append("\nBreakout: NO\n");
         out.append("Strength: ").append(String.format(java.util.Locale.ROOT, "%.2f", signal.strength()))
                 .append("\n\n");
+        // The signal fires when the candle that completed it closes; its open time would read as
+        // a full candle earlier (an hour, on 1h) than the alert actually went out.
+        long generatedAt = signal.detectedAtTime() + signal.market().timeframe().durationMillis();
         out.append("Signal generated:\n")
-                .append(PriceFormatter.timestamp(signal.detectedAtTime(), zone)).append(' ')
+                .append(PriceFormatter.timestamp(generatedAt, zone)).append(' ')
                 .append(zoneLabel());
 
         if (signal.historical()) {

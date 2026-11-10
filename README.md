@@ -28,10 +28,12 @@ Breakout: NO
 Strength: 0.80
 
 Signal generated:
-2026-09-20 11:00 UTC
+2026-09-20 11:05 UTC
 ```
 
 That example is real output, from live Binance data — touches 428 and 92 candles apart.
+Touch times are candle open times, as Binance labels candles; *Signal generated* is when the
+candle that completed the signal closed.
 
 ---
 
@@ -270,7 +272,7 @@ implementation of one method.
 
 ```bash
 cd backend
-mvn test                                        # 186 unit tests, no Docker needed
+mvn test                                        # 187 unit tests, no Docker needed
 mvn verify                                      # + 29 integration tests (real PostgreSQL)
 mvn test -Dgroups=external -Dtest.excluded.groups=   # + 5 live Binance API tests
 ```

@@ -6,7 +6,7 @@ import { LiveChart } from './LiveChart'
 import { LevelFate, SupersededNote } from './LevelFacts'
 import { NextPotentialCard, signedPercent } from './NextPotential'
 import { TouchTable } from './TouchTable'
-import { price, timestamp } from './format'
+import { knownAt, price } from './format'
 
 /** Everything behind one signal: the live chart with the level drawn on it, its fate, and its touches. */
 export function SignalDetail({ signal, nextPotentialRule }: {
@@ -61,7 +61,7 @@ export function SignalDetail({ signal, nextPotentialRule }: {
           </div>
           <div>
             <div className="stat-label">Detected</div>
-            <div className="stat-value">{timestamp(signal.detectedAt, timeZone)}</div>
+            <div className="stat-value">{knownAt(signal.detectedAt, signal.timeframe, timeZone)}</div>
           </div>
           <LevelFate level={level} />
           <div>
@@ -109,7 +109,7 @@ export function SignalDetail({ signal, nextPotentialRule }: {
             </thead>
             <tbody>
               <tr style={{ cursor: 'default' }}>
-                <td className="num">{timestamp(level.breakout.confirmedAt, timeZone)}</td>
+                <td className="num">{knownAt(level.breakout.confirmedAt, level.timeframe, timeZone)}</td>
                 <td className="num">{price(level.breakout.thresholdPrice)}</td>
                 <td className="num">{price(level.breakout.confirmationPrice)}</td>
                 <td className="num dim">{level.breakout.confirmationCandles}</td>

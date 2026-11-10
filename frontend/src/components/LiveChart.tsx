@@ -6,7 +6,7 @@ import {
 } from 'lightweight-charts'
 import { api } from '../api'
 import type { LevelType, Touch } from '../types'
-import { toChartSeconds, useTimeZone } from '../timezone'
+import { chartClock, toChartSeconds, useTimeZone } from '../timezone'
 import { chartPrecision, duration, price as fmtPrice, TIMEFRAME_MILLIS } from './format'
 
 /** The level drawn on top of the market: line, tolerance zone and numbered touches. */
@@ -208,8 +208,10 @@ export function LiveChart({ symbol, timeframe, level }: Props) {
       }
     }
 
+    // One clock for the history and the live updates after it, so both stay in order.
+    const clock = chartClock(timeZone)
     const toPoint = (b: Bar) => ({
-      time: toChartSeconds(b.openTime, timeZone) as UTCTimestamp,
+      time: clock(b.openTime) as UTCTimestamp,
       open: b.open, high: b.high, low: b.low, close: b.close,
     })
 
@@ -261,10 +263,15 @@ export function LiveChart({ symbol, timeframe, level }: Props) {
         precisionRef.current = precision
         series.applyOptions({ priceFormat: { type: 'price', precision, minMove: 1 / 10 ** precision } })
         series.setData(bars.map(toPoint))
+        // A marker must sit on a candle's own chart time; outside the loaded candles the plain
+        // shift is as good as any.
+        const loaded = new Set(bars.map((b) => b.openTime))
+        const markerTime = (millis: number) =>
+          (loaded.has(millis) ? clock(millis) : toChartSeconds(millis, timeZone)) as UTCTimestamp
 
         if (overlay) {
           const markers: SeriesMarker<Time>[] = overlay.touches.map((t) => ({
-            time: toChartSeconds(Date.parse(t.touchAt), timeZone) as UTCTimestamp,
+            time: markerTime(Date.parse(t.touchAt)),
             position: overlay.type === 'RESISTANCE' ? 'aboveBar' : 'belowBar',
             color: '#f0b429',
             shape: overlay.type === 'RESISTANCE' ? 'arrowDown' : 'arrowUp',
@@ -274,7 +281,7 @@ export function LiveChart({ symbol, timeframe, level }: Props) {
           // Only when the swing is within the loaded candles; otherwise the line alone shows it.
           if (target?.time != null && target.time >= bars[0].openTime) {
             markers.push({
-              time: toChartSeconds(target.time, timeZone) as UTCTimestamp,
+              time: markerTime(target.time),
               position: overlay.type === 'RESISTANCE' ? 'aboveBar' : 'belowBar',
               color: TARGET_COLOR,
               shape: 'circle',

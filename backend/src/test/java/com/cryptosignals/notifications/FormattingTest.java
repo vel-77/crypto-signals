@@ -90,6 +90,17 @@ class FormattingTest {
         }
 
         @Test
+        @DisplayName("the signal time is when its candle closed, not when that candle opened")
+        void signalTimeIsTheCandleClose() {
+            TradingSignal signal = sampleSignal();
+            String message = new SignalFormatter().format(signal);
+
+            long closedAt = signal.detectedAtTime() + Timeframe.M5.durationMillis();
+            assertThat(message).contains("Signal generated:\n"
+                    + PriceFormatter.timestamp(closedAt, java.time.ZoneOffset.UTC) + " UTC");
+        }
+
+        @Test
         @DisplayName("times can be shown in a configured time zone, labelled with it")
         void usesConfiguredTimeZone() {
             TradingSignal signal = sampleSignal();
