@@ -38,6 +38,10 @@ export function WatchListView({ list, timeZone }: Props) {
       <div className="section-title" style={{ padding: '0 0 8px' }}>
         Watch list — {list.count} coin{list.count === 1 ? '' : 's'}, each on every timeframe
       </div>
+      <p className="watchlist-rule">
+        Coins, volumes and prices all come from <b>{list.exchangeLabel}</b>.
+        {list.exchange === 'BINANCE_FUTURES' && <> Only perpetual contracts on crypto coins are considered.</>}
+      </p>
       {rule ? (
         <p className="watchlist-rule">
           The fixed coins are always watched. On top of them come the most traded other coins: those

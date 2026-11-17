@@ -1,6 +1,7 @@
 package com.cryptosignals.api;
 
 import com.cryptosignals.api.dto.Dtos;
+import com.cryptosignals.config.ExchangeProperties;
 import com.cryptosignals.domain.LevelType;
 import com.cryptosignals.domain.SignalStatus;
 import com.cryptosignals.persistence.entity.SignalEntity;
@@ -32,10 +33,12 @@ public class SignalController {
 
     private final SignalRepository signals;
     private final LevelTouchRepository touches;
+    private final ExchangeProperties exchange;
 
-    public SignalController(SignalRepository signals, LevelTouchRepository touches) {
+    public SignalController(SignalRepository signals, LevelTouchRepository touches, ExchangeProperties exchange) {
         this.signals = signals;
         this.touches = touches;
+        this.exchange = exchange;
     }
 
     @GetMapping
@@ -55,7 +58,7 @@ public class SignalController {
             @PageableDefault(size = 50, sort = "detectedAt", direction = Sort.Direction.DESC) Pageable pageable) {
 
         Page<SignalEntity> page = signals.findAll(
-                QuerySpecifications.signals(symbol, timeframe, type, status,
+                QuerySpecifications.signals(exchange.getName(), symbol, timeframe, type, status,
                         new QuerySpecifications.TouchFilter(touches, touchesAtLeast), from, to, historical),
                 pageable);
         // Touches are omitted from list responses: a page of 50 signals would otherwise issue 50

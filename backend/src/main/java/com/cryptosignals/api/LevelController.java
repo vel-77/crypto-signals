@@ -1,6 +1,7 @@
 package com.cryptosignals.api;
 
 import com.cryptosignals.api.dto.Dtos;
+import com.cryptosignals.config.ExchangeProperties;
 import com.cryptosignals.domain.LevelStatus;
 import com.cryptosignals.domain.LevelType;
 import com.cryptosignals.persistence.entity.PriceLevelEntity;
@@ -34,12 +35,14 @@ public class LevelController {
     private final PriceLevelRepository levels;
     private final LevelTouchRepository touches;
     private final BreakoutEventRepository breakouts;
+    private final ExchangeProperties exchange;
 
     public LevelController(PriceLevelRepository levels, LevelTouchRepository touches,
-                           BreakoutEventRepository breakouts) {
+                           BreakoutEventRepository breakouts, ExchangeProperties exchange) {
         this.levels = levels;
         this.touches = touches;
         this.breakouts = breakouts;
+        this.exchange = exchange;
     }
 
     @GetMapping
@@ -57,7 +60,7 @@ public class LevelController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
             @PageableDefault(size = 50, sort = "firstSeenAt", direction = Sort.Direction.DESC) Pageable pageable) {
 
-        Page<PriceLevelEntity> page = levels.findAll(QuerySpecifications.levels(
+        Page<PriceLevelEntity> page = levels.findAll(QuerySpecifications.levels(exchange.getName(),
                 symbol, timeframe, type, status,
                 new QuerySpecifications.TouchFilter(touches, touchesAtLeast),
                 from, to, minTouches, minStrength), pageable);

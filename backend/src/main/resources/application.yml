@@ -96,16 +96,20 @@ crypto-signals:
     reconciliation-interval: 15m
 
   # -----------------------------------------------------------------------------------------------
-  # Exchange connectivity.
+  # Exchange connectivity. Coins, volumes, history and live candles all come from one market:
+  #   BINANCE          Binance spot
+  #   BINANCE_FUTURES  Binance USDⓈ-M perpetual futures (docker-compose picks this one)
+  # Each keeps its own stored candles, levels and signals; switching back and forth loses nothing.
+  # Empty addresses and a 0 weight budget take the chosen market's defaults.
   # -----------------------------------------------------------------------------------------------
   exchange:
     name: BINANCE
-    rest-base-url: ${BINANCE_REST_URL:https://api.binance.com}
-    ws-base-url: ${BINANCE_WS_URL:wss://stream.binance.com:9443}
+    rest-base-url: ${BINANCE_REST_URL:}     # https://api.binance.com / https://fapi.binance.com
+    ws-base-url: ${BINANCE_WS_URL:}         # wss://stream.binance.com:9443 / wss://fstream.binance.com/market
     connect-timeout: 10s
     read-timeout: 30s
     kline-page-size: 1000
-    max-weight-per-minute: 2400
+    max-weight-per-minute: 0        # 0 = 2400 on spot (of 6000 allowed), 1200 on futures (of 2400)
     max-retries: 5
     retry-backoff: 1s
     reconnect-min-backoff: 1s

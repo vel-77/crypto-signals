@@ -31,6 +31,7 @@ public final class LevelAnalysisEngineFactory {
     private final BreakoutDetector breakoutDetector;
     private final ToleranceCalculator toleranceCalculator;
     private final StrengthCalculator strengthCalculator;
+    private final String idNamespace;
 
     public LevelAnalysisEngineFactory() {
         this(new SwingClusterLevelStrategy(new FractalSwingDetector()),
@@ -45,11 +46,30 @@ public final class LevelAnalysisEngineFactory {
                                       BreakoutDetector breakoutDetector,
                                       ToleranceCalculator toleranceCalculator,
                                       StrengthCalculator strengthCalculator) {
+        this(detectionStrategy, touchDetector, breakoutDetector, toleranceCalculator, strengthCalculator, "");
+    }
+
+    private LevelAnalysisEngineFactory(LevelDetectionStrategy detectionStrategy,
+                                       TouchDetector touchDetector,
+                                       BreakoutDetector breakoutDetector,
+                                       ToleranceCalculator toleranceCalculator,
+                                       StrengthCalculator strengthCalculator,
+                                       String idNamespace) {
         this.detectionStrategy = detectionStrategy;
         this.touchDetector = touchDetector;
         this.breakoutDetector = breakoutDetector;
         this.toleranceCalculator = toleranceCalculator;
         this.strengthCalculator = strengthCalculator;
+        this.idNamespace = idNamespace;
+    }
+
+    /**
+     * The same engines, with level ids kept apart from other venues' (see {@link Ids#levelId}).
+     * Empty keeps the ids levels had before venues were told apart.
+     */
+    public LevelAnalysisEngineFactory withIdNamespace(String namespace) {
+        return new LevelAnalysisEngineFactory(detectionStrategy, touchDetector, breakoutDetector,
+                toleranceCalculator, strengthCalculator, namespace == null ? "" : namespace);
     }
 
     /**
@@ -60,7 +80,7 @@ public final class LevelAnalysisEngineFactory {
     public LevelAnalysisEngine create(MarketKey market, AnalysisConfig config,
                                       boolean retainCompletedLevels) {
         return new LevelAnalysisEngine(market, config, detectionStrategy, touchDetector,
-                breakoutDetector, toleranceCalculator, strengthCalculator, retainCompletedLevels);
+                breakoutDetector, toleranceCalculator, strengthCalculator, retainCompletedLevels, idNamespace);
     }
 
     /** Convenience batch entry point: replay a whole series and return the full report. */

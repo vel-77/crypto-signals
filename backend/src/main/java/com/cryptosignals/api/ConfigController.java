@@ -6,6 +6,8 @@ import com.cryptosignals.config.ExchangeProperties;
 import com.cryptosignals.config.MarketProperties;
 import com.cryptosignals.config.NextPotentialProperties;
 import com.cryptosignals.config.NotificationProperties;
+import com.cryptosignals.exchange.ExchangeClient;
+import com.cryptosignals.exchange.ExchangeSettings;
 import com.cryptosignals.marketdata.WatchList;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,18 +26,23 @@ public class ConfigController {
     private final AnalysisProperties analysis;
     private final MarketProperties markets;
     private final ExchangeProperties exchange;
+    private final ExchangeSettings exchangeSettings;
+    private final ExchangeClient exchangeClient;
     private final NotificationProperties notifications;
     private final LevelAnalysisEngineFactory engineFactory;
     private final NextPotentialProperties nextPotential;
     private final WatchList watchList;
 
     public ConfigController(AnalysisProperties analysis, MarketProperties markets,
-                            ExchangeProperties exchange, NotificationProperties notifications,
+                            ExchangeProperties exchange, ExchangeSettings exchangeSettings,
+                            ExchangeClient exchangeClient, NotificationProperties notifications,
                             LevelAnalysisEngineFactory engineFactory,
                             NextPotentialProperties nextPotential, WatchList watchList) {
         this.analysis = analysis;
         this.markets = markets;
         this.exchange = exchange;
+        this.exchangeSettings = exchangeSettings;
+        this.exchangeClient = exchangeClient;
         this.notifications = notifications;
         this.engineFactory = engineFactory;
         this.nextPotential = nextPotential;
@@ -87,9 +94,10 @@ public class ConfigController {
 
         Map<String, Object> exchangeInfo = new LinkedHashMap<>();
         exchangeInfo.put("name", exchange.getName());
-        exchangeInfo.put("restBaseUrl", exchange.getRestBaseUrl());
-        exchangeInfo.put("wsBaseUrl", exchange.getWsBaseUrl());
-        exchangeInfo.put("maxWeightPerMinute", exchange.getMaxWeightPerMinute());
+        exchangeInfo.put("label", exchangeClient.label());
+        exchangeInfo.put("restBaseUrl", exchangeSettings.restBaseUrl());
+        exchangeInfo.put("wsBaseUrl", exchangeSettings.wsBaseUrl());
+        exchangeInfo.put("maxWeightPerMinute", exchangeSettings.maxWeightPerMinute());
         root.put("exchange", exchangeInfo);
 
         // Channel availability is useful; the bot token is not, and must never be exposed here.

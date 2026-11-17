@@ -111,6 +111,10 @@ export interface Page<T> {
 
 /** GET /api/watchlist: the analysed coins and why each one is there. */
 export interface WatchList {
+  /** Where coins, volumes and prices come from: BINANCE (spot) or BINANCE_FUTURES. */
+  exchange: string
+  /** The same in words, e.g. "Binance USDⓈ-M futures". */
+  exchangeLabel: string
   /** VOLUME: fixed coins plus the most traded others; FIXED: only the configured coins. */
   mode: 'VOLUME' | 'FIXED'
   source: 'FIXED' | 'STORED' | 'EXCHANGE'

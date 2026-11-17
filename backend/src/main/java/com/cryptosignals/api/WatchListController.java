@@ -4,6 +4,7 @@ import com.cryptosignals.api.dto.Dtos.VolumeRuleDto;
 import com.cryptosignals.api.dto.Dtos.WatchListDto;
 import com.cryptosignals.api.dto.Dtos.WatchedSymbolDto;
 import com.cryptosignals.config.MarketProperties;
+import com.cryptosignals.exchange.ExchangeClient;
 import com.cryptosignals.marketdata.WatchList;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -22,10 +23,12 @@ public class WatchListController {
 
     private final WatchList watchList;
     private final MarketProperties markets;
+    private final ExchangeClient exchange;
 
-    public WatchListController(WatchList watchList, MarketProperties markets) {
+    public WatchListController(WatchList watchList, MarketProperties markets, ExchangeClient exchange) {
         this.watchList = watchList;
         this.markets = markets;
+        this.exchange = exchange;
     }
 
     @GetMapping
@@ -47,7 +50,8 @@ public class WatchListController {
                         rules.getMinPriceRangePercent(), List.copyOf(rules.getExcludeTags()),
                         List.copyOf(rules.getExcludeAssets()), rules.getRefreshInterval().toString())
                 : null;
-        return new WatchListDto(rules.isEnabled() ? "VOLUME" : "FIXED", watchList.source().name(),
+        return new WatchListDto(exchange.name(), exchange.label(),
+                rules.isEnabled() ? "VOLUME" : "FIXED", watchList.source().name(),
                 symbols.size(), symbols, rule, watchList.refreshedAt(), watchList.nextAttemptAt(),
                 watchList.lastError());
     }

@@ -9,6 +9,7 @@ import { MarketPanel } from './components/MarketPanel'
 import { WatchListView } from './components/WatchListView'
 import { knownAt, price } from './components/format'
 import { useTimeZone, zoneLabel, zoneOptions } from './timezone'
+import { ChartFeedContext, feedFor } from './venue'
 
 type Tab = 'signals' | 'levels' | 'config'
 
@@ -72,6 +73,7 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [symbols, setSymbols] = useState<string[]>([])
   const [timeframes, setTimeframes] = useState<string[]>([])
+  const [exchange, setExchange] = useState<string | undefined>()
   const [totalItems, setTotalItems] = useState(0)
 
   const updateFilters = (next: FilterState) => {
@@ -121,6 +123,7 @@ export default function App() {
           setSymbols(markets?.symbols ?? [])
           setTimeframes(markets?.timeframes ?? [])
           setNextPotentialRule((c.nextPotential as NextPotentialRule | undefined) ?? null)
+          setExchange((c.exchange as { name?: string } | undefined)?.name)
         })
         .catch(() => {})
     void read()
@@ -145,6 +148,7 @@ export default function App() {
   const tz = zoneLabel(timeZone)
 
   return (
+    <ChartFeedContext.Provider value={feedFor(exchange)}>
     <div className="app">
       <header className="header">
         <div className="brand">crypto<span>·</span>signals</div>
@@ -288,5 +292,6 @@ export default function App() {
         </div>
       )}
     </div>
+    </ChartFeedContext.Provider>
   )
 }

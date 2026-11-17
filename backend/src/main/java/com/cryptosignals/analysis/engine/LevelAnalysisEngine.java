@@ -60,6 +60,7 @@ import java.util.Set;
 public final class LevelAnalysisEngine {
 
     private final MarketKey market;
+    private final String idNamespace;
     private final AnalysisConfig config;
     private final LevelDetectionStrategy detectionStrategy;
     private final TouchDetector touchDetector;
@@ -102,7 +103,22 @@ public final class LevelAnalysisEngine {
                                ToleranceCalculator toleranceCalculator,
                                StrengthCalculator strengthCalculator,
                                boolean retainCompletedLevels) {
+        this(market, config, detectionStrategy, touchDetector, breakoutDetector, toleranceCalculator,
+                strengthCalculator, retainCompletedLevels, "");
+    }
+
+    /** @param idNamespace kept apart from other venues' ids; see {@link Ids#levelId}. */
+    public LevelAnalysisEngine(MarketKey market,
+                               AnalysisConfig config,
+                               LevelDetectionStrategy detectionStrategy,
+                               TouchDetector touchDetector,
+                               BreakoutDetector breakoutDetector,
+                               ToleranceCalculator toleranceCalculator,
+                               StrengthCalculator strengthCalculator,
+                               boolean retainCompletedLevels,
+                               String idNamespace) {
         this.market = market;
+        this.idNamespace = idNamespace == null ? "" : idNamespace;
         this.config = config;
         this.detectionStrategy = detectionStrategy;
         this.touchDetector = touchDetector;
@@ -501,7 +517,7 @@ public final class LevelAnalysisEngine {
     private void createFlippedLevel(LevelState broken, Candle candle, int index,
                                     List<LevelState> changed) {
         LevelType flipped = broken.type().opposite();
-        String id = Ids.levelId(market, flipped, candle.openTime(), broken.price());
+        String id = Ids.levelId(idNamespace, market, flipped, candle.openTime(), broken.price());
         LevelState level = new LevelState(id, market, flipped, broken.price(), index,
                 candle.openTime());
         level.applyZone(toleranceCalculator.halfWidth(level.price(), atr.value(), config));
@@ -724,7 +740,7 @@ public final class LevelAnalysisEngine {
          */
         @Override
         public LevelState createLevel(SwingPoint origin) {
-            String id = Ids.levelId(market, origin.type(), origin.time(), origin.price());
+            String id = Ids.levelId(idNamespace, market, origin.type(), origin.time(), origin.price());
             LevelState level = new LevelState(id, market, origin.type(), origin.price(),
                     origin.index(), origin.time());
             level.applyZone(toleranceCalculator.halfWidth(level.price(), atr.value(), config));

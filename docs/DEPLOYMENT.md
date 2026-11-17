@@ -218,7 +218,7 @@ engine. Practical limits:
 | `bootstrap` stuck on `RUNNING` | A long first backfill. Watch `candlesStored` in `/api/status` climb. |
 | `bootstrap: FAILED` | Check `docker compose logs backend`. Usually the database or a symbol the venue does not list. |
 | A market is missing entirely | The exchange does not list that symbol; the log says so at startup and the others continue. |
-| `liveStream.connected` false | Reconnect is automatic with backoff. If it persists, check egress to `stream.binance.com:9443`. |
+| `liveStream.connected` false | Reconnect is automatic with backoff. If it persists, check egress to `fstream.binance.com` (futures) or `stream.binance.com:9443` (spot). |
 | No signals at all | Expected on a short lookback — a level needs three *separated* touches. Verify with a backtest over a longer range before suspecting a bug. |
 | Far too many signals, levels dying instantly | Tolerances too tight for the timeframe. See [ALGORITHM.md §12](ALGORITHM.md#12--calibration--measured-not-guessed). |
 | Telegram silent | `GET /api/config` → `notifications.telegramEnabled`. Note that historical signals are suppressed by default, and signals older than `maxSignalAge` (1h) are never delivered. |

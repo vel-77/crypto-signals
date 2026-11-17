@@ -5,15 +5,22 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
 
-/** Exchange connectivity. Values are venue-agnostic; the Binance client supplies its own defaults. */
+/**
+ * Exchange connectivity. Addresses and the weight budget left empty (or 0) take the chosen venue's
+ * own defaults, so switching {@link #name} is all it takes to move between spot and futures.
+ */
 @ConfigurationProperties(prefix = "crypto-signals.exchange")
 public class ExchangeProperties {
 
-    /** Which {@code ExchangeClient} implementation to activate, matched against its name. */
+    /**
+     * Which {@code ExchangeClient} implementation to activate, matched against its name: BINANCE
+     * (spot) or BINANCE_FUTURES (USDⓈ-M perpetual futures).
+     */
     private String name = "BINANCE";
 
-    private String restBaseUrl = "https://api.binance.com";
-    private String wsBaseUrl = "wss://stream.binance.com:9443";
+    /** Empty means the venue's own address. */
+    private String restBaseUrl = "";
+    private String wsBaseUrl = "";
 
     private Duration connectTimeout = Duration.ofSeconds(10);
     private Duration readTimeout = Duration.ofSeconds(30);
@@ -22,10 +29,10 @@ public class ExchangeProperties {
     private int klinePageSize = 1000;
 
     /**
-     * Request-weight budget per minute. Binance publishes 6000/min for the spot REST API; the
-     * default leaves generous headroom so a backfill never trips a ban.
+     * Request-weight budget per minute; 0 means the venue's default, which leaves generous headroom
+     * under what Binance allows (6000/min on spot, 2400/min on futures) so a backfill never trips a ban.
      */
-    private int maxWeightPerMinute = 2400;
+    private int maxWeightPerMinute = 0;
 
     private int maxRetries = 5;
     private Duration retryBackoff = Duration.ofSeconds(1);
@@ -46,15 +53,28 @@ public class ExchangeProperties {
      */
     private String symbolTagsUrl = ExchangeSettings.DEFAULT_SYMBOL_TAGS_URL;
 
-    /** Adapts external configuration into the exchange layer's own settings type. */
-    public ExchangeSettings toSettings() {
-        return new ExchangeSettings(restBaseUrl, wsBaseUrl, connectTimeout, readTimeout,
-                klinePageSize, maxWeightPerMinute, maxRetries, retryBackoff,
-                reconnectMinBackoff, reconnectMaxBackoff, streamStaleAfter, symbolTagsUrl);
+    /**
+     * Adapts external configuration into the exchange layer's own settings type, filling in the
+     * venue's defaults wherever nothing was set.
+     */
+    public ExchangeSettings toSettings(String defaultRestBaseUrl, String defaultWsBaseUrl,
+                                       int defaultMaxWeightPerMinute) {
+        return new ExchangeSettings(
+                isBlank(restBaseUrl) ? defaultRestBaseUrl : restBaseUrl.trim(),
+                isBlank(wsBaseUrl) ? defaultWsBaseUrl : wsBaseUrl.trim(),
+                connectTimeout, readTimeout, klinePageSize,
+                maxWeightPerMinute > 0 ? maxWeightPerMinute : defaultMaxWeightPerMinute,
+                maxRetries, retryBackoff, reconnectMinBackoff, reconnectMaxBackoff, streamStaleAfter,
+                symbolTagsUrl);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     public String getName() { return name; }
-    public void setName(String v) { this.name = v; }
+    /** Stored markets are filed under this name, so it is kept in one spelling. */
+    public void setName(String v) { this.name = v == null ? null : v.trim().toUpperCase(java.util.Locale.ROOT); }
     public String getRestBaseUrl() { return restBaseUrl; }
     public void setRestBaseUrl(String v) { this.restBaseUrl = v; }
     public String getWsBaseUrl() { return wsBaseUrl; }

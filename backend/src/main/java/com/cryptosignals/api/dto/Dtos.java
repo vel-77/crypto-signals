@@ -185,6 +185,9 @@ public final class Dtos {
     /**
      * The watched symbols and how they were chosen.
      *
+     * @param exchange      where coins, volumes and prices come from: BINANCE (spot) or
+     *                      BINANCE_FUTURES (USDⓈ-M perpetual futures)
+     * @param exchangeLabel the same in words
      * @param mode        VOLUME when coins are chosen by trading volume on top of the fixed ones,
      *                    FIXED when only the configured symbols are watched
      * @param source      where the current list came from: FIXED, STORED (loaded at startup, the
@@ -193,7 +196,8 @@ public final class Dtos {
      * @param rule        the selection settings; absent in FIXED mode
      * @param lastError   why the last refresh failed; absent after a successful one
      */
-    public record WatchListDto(String mode, String source, int count, List<WatchedSymbolDto> symbols,
+    public record WatchListDto(String exchange, String exchangeLabel, String mode, String source, int count,
+                               List<WatchedSymbolDto> symbols,
                                VolumeRuleDto rule, Instant refreshedAt, Instant nextRefreshAt,
                                String lastError) {
     }

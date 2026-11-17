@@ -4,12 +4,15 @@ import com.cryptosignals.domain.LevelStatus;
 import com.cryptosignals.domain.LevelType;
 import com.cryptosignals.domain.SignalStatus;
 import com.cryptosignals.domain.Timeframe;
+import com.cryptosignals.persistence.entity.MarketEntity;
 import com.cryptosignals.persistence.entity.PriceLevelEntity;
 import com.cryptosignals.persistence.entity.SignalEntity;
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.time.Instant;
@@ -24,6 +27,9 @@ import java.util.List;
  * filter are OR-ed ("BTCUSDT or SOLUSDT"); different filters are AND-ed ("… and on 15m"). Absent or
  * empty filters contribute no predicate, so one specification serves "everything" and
  * "superseded or invalidated 4- and 5-touch BTCUSDT and SOLUSDT resistance on 15m last week" alike.
+ *
+ * <p>Both always keep to one exchange's markets: after a switch from spot to futures the spot rows
+ * are still stored, and BTCUSDT on spot must not show up among BTCUSDT on futures.
  */
 public final class QuerySpecifications {
 
@@ -47,12 +53,14 @@ public final class QuerySpecifications {
         }
     }
 
-    public static Specification<SignalEntity> signals(List<String> symbols, List<String> timeframes,
+    public static Specification<SignalEntity> signals(String exchange,
+                                                      List<String> symbols, List<String> timeframes,
                                                       List<LevelType> types, List<SignalStatus> statuses,
                                                       TouchFilter touches, Instant from, Instant to,
                                                       Boolean historical) {
         return (root, query, builder) -> {
             List<Predicate> predicates = new ArrayList<>();
+            predicates.add(onExchange(root, query, builder, exchange));
             in(predicates, root.get("symbol"), symbols(symbols));
             in(predicates, root.get("timeframe"), timeframes(timeframes));
             in(predicates, root.get("type"), types);
@@ -71,12 +79,14 @@ public final class QuerySpecifications {
         };
     }
 
-    public static Specification<PriceLevelEntity> levels(List<String> symbols, List<String> timeframes,
+    public static Specification<PriceLevelEntity> levels(String exchange,
+                                                         List<String> symbols, List<String> timeframes,
                                                          List<LevelType> types, List<LevelStatus> statuses,
                                                          TouchFilter touches, Instant from, Instant to,
                                                          Integer minTouches, Double minStrength) {
         return (root, query, builder) -> {
             List<Predicate> predicates = new ArrayList<>();
+            predicates.add(onExchange(root, query, builder, exchange));
             in(predicates, root.get("symbol"), symbols(symbols));
             in(predicates, root.get("timeframe"), timeframes(timeframes));
             in(predicates, root.get("type"), types);
@@ -96,6 +106,15 @@ public final class QuerySpecifications {
             }
             return builder.and(predicates.toArray(Predicate[]::new));
         };
+    }
+
+    /** The row belongs to one of the exchange's markets. */
+    private static Predicate onExchange(Root<?> root, CriteriaQuery<?> query, CriteriaBuilder builder,
+                                        String exchange) {
+        Subquery<Long> markets = query.subquery(Long.class);
+        Root<MarketEntity> market = markets.from(MarketEntity.class);
+        markets.select(market.get("id")).where(builder.equal(market.get("exchange"), exchange));
+        return root.get("marketId").in(markets);
     }
 
     private static <T> void in(List<Predicate> predicates, Path<Object> field, Collection<T> values) {

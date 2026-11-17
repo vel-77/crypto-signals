@@ -215,6 +215,10 @@ precision and no thousands separators.
 Exactly what the running engine is using, including the `configFingerprint` that every stored level
 and signal is tagged with. Credentials are never included — only whether a channel is usable.
 
+`exchange.name` is the Binance market everything comes from (`BINANCE_FUTURES` or `BINANCE`),
+`exchange.label` the same in words. Signal, level and candle queries only return that market's
+data: rows stored while running on the other one stay in the database but are not listed.
+
 `markets.symbols` and `markets.watchedMarkets` are the coins watched right now; with volume
 selection on they change while the service runs. `markets.fixedSymbols` are the always-watched
 ones from the configuration, and `markets.volumeSelection` holds the selection settings.
@@ -226,6 +230,8 @@ timeframe.
 
 ```json
 {
+  "exchange": "BINANCE_FUTURES",
+  "exchangeLabel": "Binance USDⓈ-M futures",
   "mode": "VOLUME",
   "source": "EXCHANGE",
   "count": 43,
@@ -245,6 +251,7 @@ timeframe.
 
 | Field | Meaning |
 |---|---|
+| `exchange` | Where coins, volumes and prices come from: `BINANCE_FUTURES` (USDⓈ-M perpetual futures) or `BINANCE` (spot). `exchangeLabel` says it in words. |
 | `mode` | `VOLUME`: the fixed coins plus the most traded others. `FIXED`: only the configured coins (no `rule`). |
 | `source` | Where the list came from: `EXCHANGE` (worked out from Binance's volumes), `STORED` (loaded at startup; Binance not asked yet), `FIXED`. |
 | `symbols[].source` | `FIXED` (always watched) or `VOLUME` (chosen by volume). Fixed coins come first, then the chosen ones by volume. |

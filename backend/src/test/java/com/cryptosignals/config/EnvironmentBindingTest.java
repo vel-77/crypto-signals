@@ -34,6 +34,7 @@ class EnvironmentBindingTest {
     private static final Map<String, String> SAMPLES = new LinkedHashMap<>();
 
     static {
+        SAMPLES.put("CRYPTO_SIGNALS_EXCHANGE_NAME", "binance_futures");
         SAMPLES.put("CRYPTO_SIGNALS_MARKETS_SYMBOLS", "AUSDT,BUSDT");
         SAMPLES.put("CRYPTO_SIGNALS_MARKETS_TIMEFRAMES", "4h");
         SAMPLES.put("CRYPTO_SIGNALS_MARKETS_LOOKBACK", "7d");
@@ -84,6 +85,9 @@ class EnvironmentBindingTest {
     void bindsEveryVariable() {
         StandardEnvironment environment = environment(Map.copyOf(SAMPLES));
         Binder binder = Binder.get(environment);
+
+        ExchangeProperties exchange = binder.bindOrCreate("crypto-signals.exchange", ExchangeProperties.class);
+        assertThat(exchange.getName()).isEqualTo("BINANCE_FUTURES");
 
         MarketProperties markets = binder.bindOrCreate("crypto-signals.markets", MarketProperties.class);
         assertThat(markets.getSymbols()).containsExactly("AUSDT", "BUSDT");

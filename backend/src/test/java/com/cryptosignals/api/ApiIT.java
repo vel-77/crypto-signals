@@ -95,6 +95,35 @@ class ApiIT extends PostgresIntegrationTest {
     }
 
     @Test
+    @DisplayName("lists keep to the running exchange: the same coin on another venue stays out")
+    void otherExchangeStaysOut() throws Exception {
+        MarketKey key = new MarketKey("BTCUSDT", TF);
+        MarketEntity futures = store.resolveMarket("BINANCE_FUTURES", key);
+        List<Candle> series = Candles.fromPath(TF, Candles.zigzag(99_000, 15,
+                100_000, 99_000, 100_000, 99_000, 100_000, 99_500));
+        candles.upsert(futures.getId(), series);
+        AnalysisConfig config = AnalysisConfig.defaults();
+        LevelAnalysisEngineFactory factory = new LevelAnalysisEngineFactory().withIdNamespace("BINANCE_FUTURES");
+        LevelAnalysisEngine engine = factory.create(key, config, false);
+        for (Candle candle : series) {
+            store.apply(futures, engine.onClosedCandle(candle), factory.detectionStrategyName(), config.fingerprint());
+        }
+        org.assertj.core.api.Assertions.assertThat(signals.count()).isEqualTo(2);
+
+        // The test profile runs spot (BINANCE): only its signal and levels are listed.
+        mvc.perform(get("/api/signals"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalItems").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(signalId.toString()));
+        long spotLevels = levels.findAll().stream()
+                .filter(level -> !level.getMarketId().equals(futures.getId())).count();
+        org.assertj.core.api.Assertions.assertThat(levels.count()).isGreaterThan(spotLevels);
+        mvc.perform(get("/api/levels").param("symbol", "BTCUSDT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalItems").value(spotLevels));
+    }
+
+    @Test
     @DisplayName("every list filter accepts several values, OR-ed within a filter")
     void multiValueFilters() throws Exception {
         expectSignals(1, "symbol", "BTCUSDT,ETHUSDT");

@@ -7,6 +7,7 @@ import {
 import { api } from '../api'
 import type { LevelType, Touch } from '../types'
 import { chartClock, toChartSeconds, useTimeZone } from '../timezone'
+import { type ChartFeed, useChartFeed } from '../venue'
 import { chartPrecision, duration, price as fmtPrice, TIMEFRAME_MILLIS } from './format'
 
 /** The level drawn on top of the market: line, tolerance zone and numbered touches. */
@@ -46,21 +47,22 @@ type Feed = 'connecting' | 'live' | 'reconnecting' | 'stored'
 /**
  * Browsers read candles straight from Binance's public market data — history over REST, then every
  * tick over a websocket — so the chart moves in real time without the server having to relay
- * anything. Both endpoints allow cross-origin access and need no key. If Binance is unreachable
- * from the viewer's network, the chart falls back to the candles stored on our server, which are
- * complete but only update as candles close.
+ * anything. The market (spot or futures) is the one the server analyses; see venue.tsx. Both
+ * endpoints allow cross-origin access and need no key. If Binance is unreachable from the viewer's
+ * network, the chart falls back to the candles stored on our server, which are complete but only
+ * update as candles close.
  */
-const BINANCE_REST = 'https://api.binance.com/api/v3/klines'
-const BINANCE_WS = 'wss://stream.binance.com:9443/ws'
 
 /** Binance pushes a kline update about every two seconds; this much silence means the socket is dead. */
 const STALE_MILLIS = 30_000
 
 const COLOR: Record<LevelType, string> = { RESISTANCE: '#f4736b', SUPPORT: '#4fc7a1' }
 
-async function loadHistory(symbol: string, timeframe: string): Promise<{ bars: Bar[]; live: boolean }> {
+async function loadHistory(symbol: string, timeframe: string, source: ChartFeed):
+    Promise<{ bars: Bar[]; live: boolean }> {
   try {
-    const response = await fetch(`${BINANCE_REST}?symbol=${symbol}&interval=${timeframe}&limit=1000`)
+    if (!source.klines) throw new Error('no browser feed for this exchange')
+    const response = await fetch(`${source.klines}?symbol=${symbol}&interval=${timeframe}&limit=1000`)
     if (!response.ok) throw new Error(`Binance ${response.status}`)
     const rows = (await response.json()) as unknown[][]
     return {
@@ -82,6 +84,7 @@ async function loadHistory(symbol: string, timeframe: string): Promise<{ bars: B
 
 export function LiveChart({ symbol, timeframe, level }: Props) {
   const { timeZone } = useTimeZone()
+  const source = useChartFeed()
   const containerRef = useRef<HTMLDivElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   const labelRef = useRef<HTMLDivElement>(null)
@@ -154,6 +157,12 @@ export function LiveChart({ symbol, timeframe, level }: Props) {
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
+    if (!source) {
+      // Until the server says which market it analyses, any candles drawn could be the wrong ones.
+      setFeed('connecting')
+      return
+    }
+    const stream = source.stream
     let disposed = false
     let socket: WebSocket | null = null
     let retryTimer: number | undefined
@@ -216,8 +225,8 @@ export function LiveChart({ symbol, timeframe, level }: Props) {
     })
 
     const connect = () => {
-      if (disposed) return
-      socket = new WebSocket(`${BINANCE_WS}/${symbol.toLowerCase()}@kline_${timeframe}`)
+      if (disposed || !stream) return
+      socket = new WebSocket(`${stream}/${symbol.toLowerCase()}@kline_${timeframe}`)
       socket.onopen = () => {
         backoff = 1_000
         lastMessageAt = Date.now()
@@ -252,7 +261,7 @@ export function LiveChart({ symbol, timeframe, level }: Props) {
       }
     }, 10_000)
 
-    loadHistory(symbol, timeframe)
+    loadHistory(symbol, timeframe, source)
       .then(({ bars, live }) => {
         if (disposed) return
         if (bars.length === 0) {
@@ -293,7 +302,7 @@ export function LiveChart({ symbol, timeframe, level }: Props) {
         }
         chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, bars.length - 220), to: bars.length + 6 })
         setLastPrice(bars[bars.length - 1].close)
-        if (live) {
+        if (live && stream) {
           connect()
         } else {
           setFeed('stored')
@@ -342,7 +351,7 @@ export function LiveChart({ symbol, timeframe, level }: Props) {
     }
     // levelKey stands in for `level`, whose identity changes on every parent render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbol, timeframe, timeZone, levelKey, drawMeasure])
+  }, [symbol, timeframe, timeZone, levelKey, drawMeasure, source])
 
   // Escape clears a measurement in progress.
   useEffect(() => {
@@ -379,6 +388,7 @@ export function LiveChart({ symbol, timeframe, level }: Props) {
         <span className="num chart-market">{symbol} · {timeframe}</span>
         {lastPrice !== null && <span className="num chart-last">{fmtPrice(lastPrice)}</span>}
         <span className={`pill feed-${feed}`}>{feedLabel[feed]}</span>
+        {source && <span className="faint chart-source">{source.label}</span>}
         <span className="toolbar-spacer" />
         <button className={`btn btn-small ${measuring ? 'btn-on' : ''}`} onClick={toggleMeasure}
                 title="Click a start point, then an end point. Esc clears.">

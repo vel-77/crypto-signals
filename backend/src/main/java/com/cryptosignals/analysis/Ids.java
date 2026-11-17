@@ -26,7 +26,18 @@ public final class Ids {
      * of each type can be created per candle, making this tuple collision-free.
      */
     public static String levelId(MarketKey market, LevelType type, long createdAtTime, double anchorPrice) {
-        return uuid("level|" + market.symbol() + "|" + market.timeframe().code() + "|" + type + "|"
+        return levelId("", market, type, createdAtTime, anchorPrice);
+    }
+
+    /**
+     * The same, for one venue. BTCUSDT on spot and on futures can swing to the very same price on
+     * the very same candle, and the two levels must still be two rows. An empty namespace gives the
+     * ids levels had before venues were told apart, so stored ones stay valid.
+     */
+    public static String levelId(String namespace, MarketKey market, LevelType type, long createdAtTime,
+                                 double anchorPrice) {
+        String venue = namespace == null || namespace.isEmpty() ? "" : namespace + "|";
+        return uuid("level|" + venue + market.symbol() + "|" + market.timeframe().code() + "|" + type + "|"
                 + createdAtTime + "|" + canonicalPrice(anchorPrice));
     }
 

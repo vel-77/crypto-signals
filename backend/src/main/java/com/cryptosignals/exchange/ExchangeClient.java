@@ -21,8 +21,16 @@ import java.util.List;
  */
 public interface ExchangeClient {
 
-    /** Matched against {@code crypto-signals.exchange.name} to select the active venue. */
+    /**
+     * Matched against {@code crypto-signals.exchange.name} to select the active venue, and the name
+     * stored markets are filed under, so each venue's candles, levels and signals stay apart.
+     */
     String name();
+
+    /** The venue in words, for people: "Binance USDⓈ-M futures". */
+    default String label() {
+        return name();
+    }
 
     /**
      * Fetches closed candles with open times in {@code [from, to]}, paging internally as needed.
@@ -47,7 +55,7 @@ public interface ExchangeClient {
     boolean supportsSymbol(String symbol);
 
     /**
-     * Every spot symbol currently trading against {@code quoteAsset}, with how much of it traded
+     * Every symbol currently trading against {@code quoteAsset}, with how much of it traded
      * over the trailing {@code window} and the venue's category tags. Used to choose which markets
      * to watch.
      *

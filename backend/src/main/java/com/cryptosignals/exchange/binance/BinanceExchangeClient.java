@@ -33,11 +33,16 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * Binance spot implementation of {@link ExchangeClient}.
+ * Binance implementation of {@link ExchangeClient}, for spot or for USDⓈ-M perpetual futures (see
+ * {@link BinanceMarket}).
  *
  * <p>Uses the JDK's own HTTP and WebSocket clients rather than a third-party SDK: the surface we
  * need is two REST endpoints and one stream, and an SDK would drag in its own threading, retry and
@@ -57,11 +62,6 @@ public class BinanceExchangeClient implements ExchangeClient {
 
     private static final Logger log = LoggerFactory.getLogger(BinanceExchangeClient.class);
 
-    public static final String NAME = "BINANCE";
-
-    /** Published weight of GET /api/v3/klines for page sizes up to 1000. */
-    private static final int KLINES_WEIGHT = 2;
-    private static final int EXCHANGE_INFO_WEIGHT = 20;
     private static final int SERVER_TIME_WEIGHT = 1;
 
     /** Symbols per rolling-window ticker request; the most Binance accepts in one call. */
@@ -69,6 +69,13 @@ public class BinanceExchangeClient implements ExchangeClient {
     /** Published weight of GET /api/v3/ticker: 4 per symbol, capped at 200 per request. */
     private static final int TICKER_WEIGHT_PER_SYMBOL = 4;
     private static final int TICKER_MAX_WEIGHT = 200;
+
+    /** Futures have no multi-day ticker: volume comes from each symbol's hourly candles, this many at once. */
+    private static final int VOLUME_REQUESTS_IN_PARALLEL = 8;
+    /** The most candles one futures klines call returns, so the longest volume window in hours, plus one. */
+    private static final int FUTURES_MAX_KLINES = 1500;
+    /** How long the futures symbol list, about 1 MB, is reused when checking symbols one by one. */
+    private static final Duration LISTING_REUSE = Duration.ofMinutes(10);
 
     /**
      * Symbols Binance accepts in a list query and in a stream name. A few meme coins are listed
@@ -78,13 +85,25 @@ public class BinanceExchangeClient implements ExchangeClient {
 
     private final ExchangeSettings settings;
     private final ObjectMapper mapper;
+    private final BinanceMarket market;
     private final HttpClient http;
     private final WeightedRateLimiter rateLimiter;
     private final Map<String, Boolean> symbolSupport = new ConcurrentHashMap<>();
+    private volatile Listing futuresListing;
 
+    /** Futures symbols by status, and when they were fetched. */
+    private record Listing(Map<String, String> statusBySymbol, Instant fetchedAt) {
+    }
+
+    /** A spot client. */
     public BinanceExchangeClient(ExchangeSettings settings, ObjectMapper mapper) {
+        this(settings, mapper, BinanceMarket.SPOT);
+    }
+
+    public BinanceExchangeClient(ExchangeSettings settings, ObjectMapper mapper, BinanceMarket market) {
         this.settings = settings;
         this.mapper = mapper;
+        this.market = market;
         this.http = HttpClient.newBuilder()
                 .connectTimeout(settings.connectTimeout())
                 .followRedirects(HttpClient.Redirect.NORMAL)
@@ -95,7 +114,20 @@ public class BinanceExchangeClient implements ExchangeClient {
 
     @Override
     public String name() {
-        return NAME;
+        return market.exchangeName();
+    }
+
+    @Override
+    public String label() {
+        return market.label();
+    }
+
+    public BinanceMarket market() {
+        return market;
+    }
+
+    private String api(String endpoint) {
+        return settings.restBaseUrl() + market.apiPath() + endpoint;
     }
 
     @Override
@@ -138,21 +170,22 @@ public class BinanceExchangeClient implements ExchangeClient {
 
     @Override
     public List<Candle> fetchLatestCandles(String symbol, Timeframe timeframe, int limit) {
-        String url = settings.restBaseUrl() + "/api/v3/klines"
+        int capped = Math.min(limit, 1000);
+        String url = api("/klines")
                 + "?symbol=" + encode(symbol)
                 + "&interval=" + timeframe.code()
-                + "&limit=" + Math.min(limit, 1000);
-        return parseKlines(getJson(url, KLINES_WEIGHT));
+                + "&limit=" + capped;
+        return parseKlines(getJson(url, market.klinesWeight(capped)));
     }
 
     private List<Candle> fetchPage(String symbol, Timeframe timeframe, long startTime, long endTime, int limit) {
-        String url = settings.restBaseUrl() + "/api/v3/klines"
+        String url = api("/klines")
                 + "?symbol=" + encode(symbol)
                 + "&interval=" + timeframe.code()
                 + "&startTime=" + startTime
                 + "&endTime=" + endTime
                 + "&limit=" + limit;
-        return parseKlines(getJson(url, KLINES_WEIGHT));
+        return parseKlines(getJson(url, market.klinesWeight(limit)));
     }
 
     /**
@@ -190,7 +223,7 @@ public class BinanceExchangeClient implements ExchangeClient {
 
     @Override
     public Instant serverTime() {
-        JsonNode node = getJson(settings.restBaseUrl() + "/api/v3/time", SERVER_TIME_WEIGHT);
+        JsonNode node = getJson(api("/time"), SERVER_TIME_WEIGHT);
         return Instant.ofEpochMilli(node.get("serverTime").asLong());
     }
 
@@ -198,16 +231,41 @@ public class BinanceExchangeClient implements ExchangeClient {
     public boolean supportsSymbol(String symbol) {
         return symbolSupport.computeIfAbsent(symbol.toUpperCase(), key -> {
             try {
-                JsonNode node = getJson(settings.restBaseUrl()
-                        + "/api/v3/exchangeInfo?symbol=" + encode(key), EXCHANGE_INFO_WEIGHT);
+                if (market == BinanceMarket.USDM_FUTURES) {
+                    return "TRADING".equals(futuresListing().statusBySymbol().get(key));
+                }
+                JsonNode node = getJson(api("/exchangeInfo?symbol=" + encode(key)), market.exchangeInfoWeight());
                 JsonNode symbols = node.get("symbols");
                 return symbols != null && symbols.isArray() && !symbols.isEmpty()
                         && "TRADING".equals(symbols.get(0).path("status").asText());
             } catch (ExchangeException ex) {
-                log.warn("Symbol {} is not tradable on Binance: {}", key, ex.getMessage());
+                log.warn("Symbol {} is not tradable on {}: {}", key, market.label(), ex.getMessage());
                 return false;
             }
         });
+    }
+
+    /** Futures' exchangeInfo always lists every symbol, so one fetch answers for all of them. */
+    private Listing futuresListing() {
+        Listing listing = futuresListing;
+        if (listing != null && listing.fetchedAt().plus(LISTING_REUSE).isAfter(Instant.now())) {
+            return listing;
+        }
+        Map<String, String> statuses = new HashMap<>();
+        for (JsonNode node : getJson(api("/exchangeInfo"), market.exchangeInfoWeight()).path("symbols")) {
+            statuses.put(node.path("symbol").asText(), node.path("status").asText());
+        }
+        listing = new Listing(Map.copyOf(statuses), Instant.now());
+        futuresListing = listing;
+        return listing;
+    }
+
+    @Override
+    public List<SymbolActivity> tradingActivity(String quoteAsset, Duration window) {
+        String quote = quoteAsset.trim().toUpperCase(Locale.ROOT);
+        return market == BinanceMarket.USDM_FUTURES
+                ? futuresTradingActivity(quote, window)
+                : spotTradingActivity(quote, window);
     }
 
     /**
@@ -215,14 +273,11 @@ public class BinanceExchangeClient implements ExchangeClient {
      * each traded over the window (the rolling-window ticker, in batches of 100), and the category
      * tags from the public product list. About 1,300 weight for Binance's ~500 USDT pairs.
      */
-    @Override
-    public List<SymbolActivity> tradingActivity(String quoteAsset, Duration window) {
-        String quote = quoteAsset.trim().toUpperCase(Locale.ROOT);
+    private List<SymbolActivity> spotTradingActivity(String quote, Duration window) {
         String windowSize = windowSize(window);
 
-        JsonNode info = getJson(settings.restBaseUrl()
-                + "/api/v3/exchangeInfo?permissions=SPOT&symbolStatus=TRADING&showPermissionSets=false",
-                EXCHANGE_INFO_WEIGHT);
+        JsonNode info = getJson(api("/exchangeInfo?permissions=SPOT&symbolStatus=TRADING&showPermissionSets=false"),
+                market.exchangeInfoWeight());
         Map<String, String> baseAssets = new LinkedHashMap<>();
         int skipped = 0;
         for (JsonNode node : info.path("symbols")) {
@@ -254,7 +309,7 @@ public class BinanceExchangeClient implements ExchangeClient {
             List<String> batch = symbols.subList(from, Math.min(symbols.size(), from + TICKER_BATCH));
             String list = batch.stream().map(symbol -> "\"" + symbol + "\"")
                     .collect(Collectors.joining(",", "[", "]"));
-            String url = settings.restBaseUrl() + "/api/v3/ticker?type=MINI&windowSize=" + windowSize
+            String url = api("/ticker?type=MINI&windowSize=" + windowSize)
                     + "&symbols=" + URLEncoder.encode(list, StandardCharsets.UTF_8);
             JsonNode rows = getJson(url,
                     Math.min(TICKER_MAX_WEIGHT, TICKER_WEIGHT_PER_SYMBOL * batch.size()));
@@ -273,19 +328,119 @@ public class BinanceExchangeClient implements ExchangeClient {
         return activity;
     }
 
+    /**
+     * The perpetual contracts on crypto coins trading against the quote asset: not the quarterly
+     * contracts, and not the stock, commodity, index and pre-market ones ({@code underlyingType}
+     * other than COIN). Futures have no ticker over several days, so each symbol's volume, high and
+     * low come from its closed hourly candles over the window, fetched a few at a time. About
+     * 1,000 weight for Binance's ~500 USDT perpetuals over 7 days.
+     *
+     * <p>Futures symbols are not in the product list that carries the tags, so a symbol gets the
+     * tags of the spot coin with the same base asset: USDCUSDT is a stablecoin, PAXGUSDT gold.
+     */
+    private List<SymbolActivity> futuresTradingActivity(String quote, Duration window) {
+        int hours = windowHours(window);
+
+        Map<String, String> baseAssets = new LinkedHashMap<>();
+        Map<String, String> statuses = new HashMap<>();
+        for (JsonNode node : getJson(api("/exchangeInfo"), market.exchangeInfoWeight()).path("symbols")) {
+            String symbol = node.path("symbol").asText();
+            statuses.put(symbol, node.path("status").asText());
+            if ("TRADING".equals(node.path("status").asText())
+                    && "PERPETUAL".equals(node.path("contractType").asText())
+                    && "COIN".equals(node.path("underlyingType").asText("COIN"))
+                    && quote.equals(node.path("quoteAsset").asText())
+                    && PLAIN_SYMBOL.matcher(symbol).matches()) {
+                baseAssets.put(symbol, node.path("baseAsset").asText());
+            }
+        }
+        futuresListing = new Listing(Map.copyOf(statuses), Instant.now());
+        if (baseAssets.isEmpty()) {
+            throw new ExchangeException("Binance futures listed no perpetuals trading against " + quote, null);
+        }
+
+        Map<String, Set<String>> tagsByAsset = assetTags();
+
+        ExecutorService pool = Executors.newFixedThreadPool(VOLUME_REQUESTS_IN_PARALLEL, runnable -> {
+            Thread thread = new Thread(runnable, "binance-futures-volume");
+            thread.setDaemon(true);
+            return thread;
+        });
+        try {
+            List<Future<SymbolActivity>> pending = new ArrayList<>(baseAssets.size());
+            baseAssets.forEach((symbol, base) -> pending.add(pool.submit(() ->
+                    hourlyActivity(symbol, base, hours, tagsByAsset.getOrDefault(base, Set.of())))));
+            List<SymbolActivity> activity = new ArrayList<>(pending.size());
+            for (Future<SymbolActivity> result : pending) {
+                activity.add(result.get());
+            }
+            log.debug("Fetched {}h trading activity for {} {} perpetual(s)", hours, activity.size(), quote);
+            return activity;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new ExchangeException("Interrupted while fetching futures volumes", ex);
+        } catch (ExecutionException ex) {
+            if (ex.getCause() instanceof ExchangeException cause) {
+                throw cause;
+            }
+            throw new ExchangeException("Could not fetch futures volumes: " + ex.getCause(), ex.getCause());
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /** Volume, high and low of one symbol over its last {@code hours} closed hourly candles. */
+    private SymbolActivity hourlyActivity(String symbol, String base, int hours, Set<String> tags) {
+        int limit = hours + 1;   // the newest candle is still forming and is left out
+        JsonNode rows = getJson(api("/klines?symbol=" + encode(symbol) + "&interval=1h&limit=" + limit),
+                market.klinesWeight(limit));
+        long now = System.currentTimeMillis();
+        List<JsonNode> closed = new ArrayList<>();
+        for (JsonNode row : rows) {
+            if (row.get(6).asLong() < now) {
+                closed.add(row);
+            }
+        }
+        double quoteVolume = 0;
+        double high = 0;
+        double low = Double.MAX_VALUE;
+        for (JsonNode row : closed.subList(Math.max(0, closed.size() - hours), closed.size())) {
+            quoteVolume += row.get(7).asDouble();
+            high = Math.max(high, row.get(2).asDouble());
+            low = Math.min(low, row.get(3).asDouble());
+        }
+        return new SymbolActivity(symbol, base, quoteVolume, high, low == Double.MAX_VALUE ? 0 : low, tags);
+    }
+
+    /** Futures volume windows are counted in hourly candles: whole hours, as many as one call returns. */
+    static int windowHours(Duration window) {
+        long hours = window.toHours();
+        if (window.isNegative() || !window.equals(Duration.ofHours(hours)) || hours < 1
+                || hours >= FUTURES_MAX_KLINES) {
+            throw new IllegalArgumentException("Futures volume windows are whole hours, from 1 hour to "
+                    + (FUTURES_MAX_KLINES - 1) + " hours, got " + window);
+        }
+        return (int) hours;
+    }
+
+    /** Base asset to the tags of every product trading it. Empty when no tags URL is configured. */
+    private Map<String, Set<String>> assetTags() {
+        Map<String, Set<String>> tags = new HashMap<>();
+        for (JsonNode product : productList()) {
+            Set<String> assetTags = tags.computeIfAbsent(product.path("b").asText(), asset -> new HashSet<>());
+            for (JsonNode tag : product.path("tags")) {
+                if (!tag.asText().isBlank()) {
+                    assetTags.add(tag.asText());
+                }
+            }
+        }
+        return tags;
+    }
+
     /** Symbol to tags, from the public product list. Empty when no tags URL is configured. */
     private Map<String, Set<String>> symbolTags() {
-        String url = settings.symbolTagsUrl();
-        if (url == null || url.isBlank()) {
-            return Map.of();
-        }
-        // A website endpoint, not part of the metered REST API.
-        JsonNode data = getJson(url, 0).path("data");
-        if (!data.isArray() || data.isEmpty()) {
-            throw new ExchangeException("Binance product list had no data", null);
-        }
         Map<String, Set<String>> tags = new HashMap<>();
-        for (JsonNode product : data) {
+        for (JsonNode product : productList()) {
             Set<String> productTags = new HashSet<>();
             for (JsonNode tag : product.path("tags")) {
                 if (!tag.asText().isBlank()) {
@@ -295,6 +450,22 @@ public class BinanceExchangeClient implements ExchangeClient {
             tags.put(product.path("s").asText(), productTags);
         }
         return tags;
+    }
+
+    /** Binance's public product list, which carries the tags; empty when no tags URL is configured. */
+    private List<JsonNode> productList() {
+        String url = settings.symbolTagsUrl();
+        if (url == null || url.isBlank()) {
+            return List.of();
+        }
+        // A website endpoint, not part of the metered REST API.
+        JsonNode data = getJson(url, 0).path("data");
+        if (!data.isArray() || data.isEmpty()) {
+            throw new ExchangeException("Binance product list had no data", null);
+        }
+        List<JsonNode> products = new ArrayList<>(data.size());
+        data.forEach(products::add);
+        return products;
     }
 
     /** Binance writes rolling windows as 1m-59m, 1h-23h or 1d-7d. */
