@@ -45,8 +45,10 @@ export function WatchListView({ list, timeZone }: Props) {
       {rule ? (
         <p className="watchlist-rule">
           The fixed coins are always watched. On top of them come the most traded other coins: those
-          averaging at least <b>{money(rule.minDailyVolume)}</b> a day over the last <b>{span(rule.window)}</b>,
-          highest first, up to <b>{rule.maxSymbols === 0 ? 'any number of' : rule.maxSymbols}</b> coins in all.
+          averaging at least <b>{money(rule.minDailyVolume)}</b> a day over the last <b>{span(rule.window)}</b>
+          {rule.maxSymbols > 0
+            ? <>, highest first, up to <b>{rule.maxSymbols}</b> coins in all.</>
+            : <>, however many there are.</>}
           Stablecoins, tokenized stocks and gold are skipped. A coin on the list stays until its volume
           falls below {rule.keepPercent}% of that threshold. Checked every {span(rule.refreshInterval)}
           {list.refreshedAt ? `; last checked ${timestamp(list.refreshedAt, timeZone)}` : ''}.

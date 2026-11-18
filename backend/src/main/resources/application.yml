@@ -77,8 +77,11 @@ crypto-signals:
       enabled: false                # docker-compose turns this on
       quote-asset: USDT
       min-daily-volume: 5000000     # average traded value per day a coin needs to join, in USDT
+      # The same per market, e.g. BINANCE_FUTURES:300000000,BINANCE:50000000 (docker-compose sets
+      # this); a market not listed uses min-daily-volume.
+      min-daily-volume-by-exchange: ""
       window: 7d                    # volume is averaged over this; Binance reports at most 7d
-      max-symbols: 50               # most coins watched in all, fixed symbols included; 0 = no limit
+      max-symbols: 0                # most coins per market, fixed symbols included; 0 = no limit
       keep-percent: 70              # a watched coin stays until it falls below 70% of what joining takes
       min-price-range-percent: 1.0  # skip coins that moved less than this over the window
       exclude-tags: [stablecoin, bStocks, tCommodities]   # Binance's tags: stablecoins, stocks, gold
@@ -96,20 +99,19 @@ crypto-signals:
     reconciliation-interval: 15m
 
   # -----------------------------------------------------------------------------------------------
-  # Exchange connectivity. Coins, volumes, history and live candles all come from one market:
+  # Exchange connectivity. The markets to run, each on its own: its own coins (by its own volumes),
+  # stored candles, levels, signals and live stream.
   #   BINANCE          Binance spot
-  #   BINANCE_FUTURES  Binance USDⓈ-M perpetual futures (docker-compose picks this one)
-  # Each keeps its own stored candles, levels and signals; switching back and forth loses nothing.
-  # Empty addresses and a 0 weight budget take the chosen market's defaults.
+  #   BINANCE_FUTURES  Binance USDⓈ-M perpetual futures
+  # The first listed is the default the API answers for and the web interface opens on;
+  # docker-compose runs both, futures first. Each market uses its own addresses and request
+  # budget: 2400 a minute on spot (of 6000 allowed), 1200 on futures (of 2400).
   # -----------------------------------------------------------------------------------------------
   exchange:
-    name: BINANCE
-    rest-base-url: ${BINANCE_REST_URL:}     # https://api.binance.com / https://fapi.binance.com
-    ws-base-url: ${BINANCE_WS_URL:}         # wss://stream.binance.com:9443 / wss://fstream.binance.com/market
+    venues: BINANCE
     connect-timeout: 10s
     read-timeout: 30s
     kline-page-size: 1000
-    max-weight-per-minute: 0        # 0 = 2400 on spot (of 6000 allowed), 1200 on futures (of 2400)
     max-retries: 5
     retry-backoff: 1s
     reconnect-min-backoff: 1s

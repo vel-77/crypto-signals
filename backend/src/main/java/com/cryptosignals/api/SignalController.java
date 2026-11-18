@@ -1,7 +1,7 @@
 package com.cryptosignals.api;
 
 import com.cryptosignals.api.dto.Dtos;
-import com.cryptosignals.config.ExchangeProperties;
+import com.cryptosignals.config.Venues;
 import com.cryptosignals.domain.LevelType;
 import com.cryptosignals.domain.SignalStatus;
 import com.cryptosignals.persistence.entity.SignalEntity;
@@ -33,19 +33,22 @@ public class SignalController {
 
     private final SignalRepository signals;
     private final LevelTouchRepository touches;
-    private final ExchangeProperties exchange;
+    private final Venues venues;
 
-    public SignalController(SignalRepository signals, LevelTouchRepository touches, ExchangeProperties exchange) {
+    public SignalController(SignalRepository signals, LevelTouchRepository touches, Venues venues) {
         this.signals = signals;
         this.touches = touches;
-        this.exchange = exchange;
+        this.venues = venues;
     }
 
     @GetMapping
     @Operation(summary = "List signals, newest first",
-            description = "Every filter is optional. List filters take several comma-separated values, "
+            description = "Signals of one market (exchange), the first running one by default. Every "
+                    + "filter is optional. List filters take several comma-separated values, "
                     + "which are OR-ed; different filters are AND-ed.")
     public Dtos.PageDto<Dtos.SignalDto> list(
+            @Parameter(description = "market: BINANCE_FUTURES or BINANCE; default the first one running")
+            @RequestParam(required = false) String exchange,
             @Parameter(description = "one or more, e.g. BTCUSDT,SOLUSDT") @RequestParam(required = false) List<String> symbol,
             @Parameter(description = "one or more, e.g. 15m,1h") @RequestParam(required = false) List<String> timeframe,
             @Parameter(description = "SUPPORT and/or RESISTANCE") @RequestParam(required = false) List<LevelType> type,
@@ -58,7 +61,7 @@ public class SignalController {
             @PageableDefault(size = 50, sort = "detectedAt", direction = Sort.Direction.DESC) Pageable pageable) {
 
         Page<SignalEntity> page = signals.findAll(
-                QuerySpecifications.signals(exchange.getName(), symbol, timeframe, type, status,
+                QuerySpecifications.signals(venues.resolve(exchange).name(), symbol, timeframe, type, status,
                         new QuerySpecifications.TouchFilter(touches, touchesAtLeast), from, to, historical),
                 pageable);
         // Touches are omitted from list responses: a page of 50 signals would otherwise issue 50

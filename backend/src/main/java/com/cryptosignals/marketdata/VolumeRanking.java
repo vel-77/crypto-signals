@@ -49,6 +49,15 @@ public final class VolumeRanking {
      */
     public static List<Ranked> choose(Collection<SymbolActivity> activity, Collection<String> fixedSymbols,
                                       Set<String> watched, MarketProperties.VolumeSelection rules) {
+        return choose(activity, fixedSymbols, watched, rules, rules.getMinDailyVolume());
+    }
+
+    /**
+     * The same, with the market's own minimum daily volume in place of the rules' default.
+     */
+    public static List<Ranked> choose(Collection<SymbolActivity> activity, Collection<String> fixedSymbols,
+                                      Set<String> watched, MarketProperties.VolumeSelection rules,
+                                      double minDailyVolume) {
         Set<String> fixed = upper(fixedSymbols);
         Set<String> excludedAssets = upper(rules.getExcludeAssets());
         Set<String> excludedTags = lower(rules.getExcludeTags());
@@ -74,7 +83,7 @@ public final class VolumeRanking {
             }
             double daily = a.quoteVolume() / days;
             double score = watched.contains(symbol) ? daily * keepFactor : daily;
-            if (score >= rules.getMinDailyVolume()) {
+            if (score >= minDailyVolume) {
                 qualifying.add(new Scored(symbol, daily, score));
             }
         }

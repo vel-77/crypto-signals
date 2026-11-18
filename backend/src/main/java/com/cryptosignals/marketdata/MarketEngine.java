@@ -2,6 +2,7 @@ package com.cryptosignals.marketdata;
 
 import com.cryptosignals.analysis.engine.EngineUpdate;
 import com.cryptosignals.analysis.engine.LevelAnalysisEngine;
+import com.cryptosignals.config.Venue;
 import com.cryptosignals.domain.Candle;
 import com.cryptosignals.domain.MarketKey;
 import com.cryptosignals.persistence.entity.MarketEntity;
@@ -18,19 +19,31 @@ import java.util.function.Function;
  */
 public final class MarketEngine {
 
+    private final Venue venue;
     private final MarketKey key;
     private final MarketEntity market;
     private final LevelAnalysisEngine engine;
     private final Object lock = new Object();
 
-    public MarketEngine(MarketKey key, MarketEntity market, LevelAnalysisEngine engine) {
+    public MarketEngine(Venue venue, MarketKey key, MarketEntity market, LevelAnalysisEngine engine) {
+        this.venue = venue;
         this.key = key;
         this.market = market;
         this.engine = engine;
     }
 
+    /** The market (spot, futures) this engine analyses. */
+    public Venue venue() {
+        return venue;
+    }
+
     public MarketKey key() {
         return key;
+    }
+
+    /** For logs: the coin, its timeframe and the market, e.g. {@code BTCUSDT:15m on BINANCE_FUTURES}. */
+    public String describe() {
+        return key + " on " + venue.name();
     }
 
     public MarketEntity market() {

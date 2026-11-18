@@ -110,11 +110,18 @@ class ApiIT extends PostgresIntegrationTest {
         }
         org.assertj.core.api.Assertions.assertThat(signals.count()).isEqualTo(2);
 
-        // The test profile runs spot (BINANCE): only its signal and levels are listed.
+        // The test profile runs spot (BINANCE) only: its signal and levels are listed, and a market
+        // that is not running is refused rather than shown.
         mvc.perform(get("/api/signals"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalItems").value(1))
                 .andExpect(jsonPath("$.items[0].id").value(signalId.toString()));
+        mvc.perform(get("/api/signals").param("exchange", "binance"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalItems").value(1));
+        mvc.perform(get("/api/signals").param("exchange", "BINANCE_FUTURES"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("bad_request"));
         long spotLevels = levels.findAll().stream()
                 .filter(level -> !level.getMarketId().equals(futures.getId())).count();
         org.assertj.core.api.Assertions.assertThat(levels.count()).isGreaterThan(spotLevels);
@@ -237,7 +244,9 @@ class ApiIT extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$.notifications.telegram").doesNotExist())
                 .andExpect(jsonPath("$.markets.symbols[0]").value("BTCUSDT"))
                 .andExpect(jsonPath("$.markets.fixedSymbols[0]").value("BTCUSDT"))
-                .andExpect(jsonPath("$.markets.volumeSelection.enabled").value(false));
+                .andExpect(jsonPath("$.markets.volumeSelection.enabled").value(false))
+                .andExpect(jsonPath("$.exchange.name").value("BINANCE"))
+                .andExpect(jsonPath("$.exchanges.length()").value(1));
     }
 
     @Test
@@ -257,8 +266,11 @@ class ApiIT extends PostgresIntegrationTest {
     void statusEndpoint() throws Exception {
         mvc.perform(get("/api/status"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exchange").value("BINANCE"))
                 .andExpect(jsonPath("$.bootstrap").exists())
-                .andExpect(jsonPath("$.liveStream.running").value(false));
+                .andExpect(jsonPath("$.liveStream.running").value(false))
+                .andExpect(jsonPath("$.exchanges[0].exchange").value("BINANCE"))
+                .andExpect(jsonPath("$.exchanges[0].streamConnected").value(false));
     }
 
     @Test

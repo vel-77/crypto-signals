@@ -4,12 +4,15 @@ import com.cryptosignals.api.dto.Dtos.VolumeRuleDto;
 import com.cryptosignals.api.dto.Dtos.WatchListDto;
 import com.cryptosignals.api.dto.Dtos.WatchedSymbolDto;
 import com.cryptosignals.config.MarketProperties;
-import com.cryptosignals.exchange.ExchangeClient;
+import com.cryptosignals.config.Venue;
 import com.cryptosignals.marketdata.WatchList;
+import com.cryptosignals.marketdata.WatchLists;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
@@ -21,22 +24,25 @@ import java.util.List;
 @Tag(name = "Watch list", description = "Which coins are analysed, and why")
 public class WatchListController {
 
-    private final WatchList watchList;
+    private final WatchLists watchLists;
     private final MarketProperties markets;
-    private final ExchangeClient exchange;
 
-    public WatchListController(WatchList watchList, MarketProperties markets, ExchangeClient exchange) {
-        this.watchList = watchList;
+    public WatchListController(WatchLists watchLists, MarketProperties markets) {
+        this.watchLists = watchLists;
         this.markets = markets;
-        this.exchange = exchange;
     }
 
     @GetMapping
     @Operation(summary = "Watched symbols",
-            description = "The fixed symbols from the configuration and, when volume selection is on, "
+            description = "The coins watched on one market (exchange), the first running one by default: "
+                    + "the fixed symbols from the configuration and, when volume selection is on, "
                     + "the most traded other coins with their average daily volume. Each symbol is "
                     + "analysed on every configured timeframe.")
-    public WatchListDto current() {
+    public WatchListDto current(
+            @Parameter(description = "market: BINANCE_FUTURES or BINANCE; default the first one running")
+            @RequestParam(required = false) String exchange) {
+        WatchList watchList = watchLists.resolve(exchange);
+        Venue venue = watchList.venue();
         MarketProperties.VolumeSelection rules = markets.getVolumeSelection();
         List<WatchedSymbolDto> symbols = watchList.entries().stream()
                 .map(e -> new WatchedSymbolDto(e.symbol(), e.fixed() ? "FIXED" : "VOLUME",
@@ -45,12 +51,12 @@ public class WatchListController {
                         e.selectedAt()))
                 .toList();
         VolumeRuleDto rule = rules.isEnabled()
-                ? new VolumeRuleDto(rules.getQuoteAsset(), BigDecimal.valueOf(rules.getMinDailyVolume()),
+                ? new VolumeRuleDto(rules.getQuoteAsset(), BigDecimal.valueOf(watchList.minDailyVolume()),
                         rules.getWindow().toString(), rules.getMaxSymbols(), rules.getKeepPercent(),
                         rules.getMinPriceRangePercent(), List.copyOf(rules.getExcludeTags()),
                         List.copyOf(rules.getExcludeAssets()), rules.getRefreshInterval().toString())
                 : null;
-        return new WatchListDto(exchange.name(), exchange.label(),
+        return new WatchListDto(venue.name(), venue.label(),
                 rules.isEnabled() ? "VOLUME" : "FIXED", watchList.source().name(),
                 symbols.size(), symbols, rule, watchList.refreshedAt(), watchList.nextAttemptAt(),
                 watchList.lastError());

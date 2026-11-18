@@ -47,7 +47,7 @@ type Feed = 'connecting' | 'live' | 'reconnecting' | 'stored'
 /**
  * Browsers read candles straight from Binance's public market data — history over REST, then every
  * tick over a websocket — so the chart moves in real time without the server having to relay
- * anything. The market (spot or futures) is the one the server analyses; see venue.tsx. Both
+ * anything. The market (spot or futures) is the one picked in the header; see venue.tsx. Both
  * endpoints allow cross-origin access and need no key. If Binance is unreachable from the viewer's
  * network, the chart falls back to the candles stored on our server, which are complete but only
  * update as candles close.
@@ -72,7 +72,7 @@ async function loadHistory(symbol: string, timeframe: string, source: ChartFeed)
       })),
     }
   } catch {
-    const stored = await api.candles(symbol, timeframe, 1000)
+    const stored = await api.candles(symbol, timeframe, 1000, source.exchange)
     return {
       live: false,
       bars: stored.map((c) => ({

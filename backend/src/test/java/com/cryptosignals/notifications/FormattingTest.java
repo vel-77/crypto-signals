@@ -66,6 +66,14 @@ class FormattingTest {
         }
 
         @Test
+        @DisplayName("names the market the signal was found on, when given")
+        void namesTheMarket() {
+            String futures = new SignalFormatter().format(sampleSignal(), "Binance USDⓈ-M futures");
+            assertThat(futures).contains("Market: Binance USDⓈ-M futures\nSymbol: BTCUSDT");
+            assertThat(new SignalFormatter().format(sampleSignal())).doesNotContain("Market:");
+        }
+
+        @Test
         @DisplayName("matches the layout from the specification")
         void producesTheSpecifiedLayout() {
             String message = new SignalFormatter().format(sampleSignal());

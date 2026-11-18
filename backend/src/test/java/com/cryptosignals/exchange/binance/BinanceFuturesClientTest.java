@@ -76,6 +76,16 @@ class BinanceFuturesClientTest {
         server.createContext("/fapi/v1/klines", this::klines);
         server.createContext("/fapi/v1/time", ex -> reply(ex, 200, "{\"serverTime\":1700000000000}"));
         server.createContext("/products", ex -> reply(ex, 200, PRODUCTS));
+        // Spot answers for one symbol at a time, and rejects one it does not list.
+        server.createContext("/api/v3/exchangeInfo", ex -> {
+            String query = ex.getRequestURI().getQuery();
+            String symbol = query == null ? "" : query.replaceAll(".*symbol=([^&]*).*", "$1");
+            if (Set.of("BTCUSDT", "SHIBUSDT", "1000SATSUSDT").contains(symbol)) {
+                reply(ex, 200, "{\"symbols\":[{\"symbol\":\"" + symbol + "\",\"status\":\"TRADING\"}]}");
+            } else {
+                reply(ex, 400, "{\"code\":-1121,\"msg\":\"Invalid symbol.\"}");
+            }
+        });
         server.start();
         base = "http://127.0.0.1:" + server.getAddress().getPort();
     }
@@ -85,13 +95,20 @@ class BinanceFuturesClientTest {
         server.stop(0);
     }
 
-    private BinanceExchangeClient client() {
+    private ExchangeSettings settings() {
         ExchangeSettings defaults = ExchangeSettings.defaults();
-        ExchangeSettings settings = new ExchangeSettings(base, "ws://127.0.0.1:1", defaults.connectTimeout(),
+        return new ExchangeSettings(base, "ws://127.0.0.1:1", defaults.connectTimeout(),
                 defaults.readTimeout(), defaults.klinePageSize(), 100_000, 1, Duration.ofMillis(1),
                 defaults.reconnectMinBackoff(), defaults.reconnectMaxBackoff(), defaults.streamStaleAfter(),
                 base + "/products");
-        return new BinanceExchangeClient(settings, mapper, BinanceMarket.USDM_FUTURES);
+    }
+
+    private BinanceExchangeClient client() {
+        return new BinanceExchangeClient(settings(), mapper, BinanceMarket.USDM_FUTURES);
+    }
+
+    private BinanceExchangeClient spotClient() {
+        return new BinanceExchangeClient(settings(), mapper, BinanceMarket.SPOT);
     }
 
     /**
@@ -186,6 +203,23 @@ class BinanceFuturesClientTest {
         assertThatThrownBy(() -> client().tradingActivity("USDT", Duration.ofDays(7)))
                 .isInstanceOf(ExchangeException.class)
                 .hasMessageContaining("Invalid symbol");
+    }
+
+    @Test
+    @DisplayName("finds a coin under either market's spelling: 1000SHIBUSDT on futures, SHIBUSDT on spot")
+    void listedSymbol() {
+        BinanceExchangeClient futures = client();
+        assertThat(futures.listedSymbol("1000SHIBUSDT")).contains("1000SHIBUSDT");
+        assertThat(futures.listedSymbol("SHIBUSDT")).contains("1000SHIBUSDT");
+        assertThat(futures.listedSymbol("btcusdt")).contains("BTCUSDT");
+        assertThat(futures.listedSymbol("NOSUCHUSDT")).isEmpty();
+        assertThat(exchangeInfoCalls).hasValue(1);
+
+        BinanceExchangeClient spot = spotClient();
+        assertThat(spot.listedSymbol("1000SHIBUSDT")).contains("SHIBUSDT");
+        assertThat(spot.listedSymbol("SHIBUSDT")).contains("SHIBUSDT");
+        assertThat(spot.listedSymbol("1000SATSUSDT")).contains("1000SATSUSDT");   // spot's own name
+        assertThat(spot.listedSymbol("NOSUCHUSDT")).isEmpty();
     }
 
     @Test

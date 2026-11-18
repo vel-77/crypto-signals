@@ -40,10 +40,13 @@ docker compose logs -f backend
 Confirm it is live:
 
 ```bash
-curl -s localhost:8080/api/status | jq '.bootstrap, .liveStream.connected'
-# "READY"
-# true
+curl -s localhost:8080/api/status | jq -c '.exchanges[] | [.exchange, .bootstrap, .streamConnected]'
+# ["BINANCE_FUTURES","READY",true]
+# ["BINANCE","READY",true]
 ```
+
+Each market (`EXCHANGES` in `.env`, futures and spot by default) starts on its own and reports its
+own state; `?exchange=BINANCE` gives one market's full status.
 
 ### Minimum edits before exposing it
 
@@ -215,7 +218,7 @@ engine. Practical limits:
 
 | Symptom | Cause and fix |
 |---|---|
-| `bootstrap` stuck on `RUNNING` | A long first backfill. Watch `candlesStored` in `/api/status` climb. |
+| `bootstrap` stuck on `RUNNING` | A long first backfill. Watch `candlesStored` in `/api/status?exchange=…` climb; each market has its own. |
 | `bootstrap: FAILED` | Check `docker compose logs backend`. Usually the database or a symbol the venue does not list. |
 | A market is missing entirely | The exchange does not list that symbol; the log says so at startup and the others continue. |
 | `liveStream.connected` false | Reconnect is automatic with backoff. If it persists, check egress to `fstream.binance.com` (futures) or `stream.binance.com:9443` (spot). |

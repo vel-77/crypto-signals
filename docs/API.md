@@ -10,6 +10,13 @@ All timestamps are ISO-8601 UTC. Prices are JSON numbers with full stored precis
 
 ## Conventions
 
+**One market at a time.** Signals, levels, candles, backtests, the watch list, the config and the
+status are per market: pass `exchange=BINANCE_FUTURES` (USDⓈ-M perpetual futures) or
+`exchange=BINANCE` (spot). Without it the answer is for the first market the server runs (`GET /api/config` lists
+them under `exchanges`, that one first); a market it does not run is a `400`. The same coin on two
+markets is two separate sets of levels and signals. Looking a signal or level up by id needs no
+market: ids are unique across markets.
+
 **Filters are optional and combine.** An omitted or empty parameter contributes no constraint.
 List filters take several values, comma-separated or repeated (`symbol=BTCUSDT,SOLUSDT` or
 `symbol=BTCUSDT&symbol=SOLUSDT`). Values **within** one filter are OR-ed; **different** filters are
@@ -215,18 +222,27 @@ precision and no thousands separators.
 Exactly what the running engine is using, including the `configFingerprint` that every stored level
 and signal is tagged with. Credentials are never included — only whether a channel is usable.
 
-`exchange.name` is the Binance market everything comes from (`BINANCE_FUTURES` or `BINANCE`),
-`exchange.label` the same in words. Signal, level and candle queries only return that market's
-data: rows stored while running on the other one stay in the database but are not listed.
+For one market (`exchange`, default the first). `exchange.name` is that market (`BINANCE_FUTURES`
+or `BINANCE`), `exchange.label` the same in words. `exchanges` lists every market the server runs,
+in order, the default first, each with its `name`, `label` and `minDailyVolume`:
 
-`markets.symbols` and `markets.watchedMarkets` are the coins watched right now; with volume
-selection on they change while the service runs. `markets.fixedSymbols` are the always-watched
-ones from the configuration, and `markets.volumeSelection` holds the selection settings.
+```json
+"exchanges": [
+  { "name": "BINANCE_FUTURES", "label": "Binance USDⓈ-M futures", "minDailyVolume": 300000000 },
+  { "name": "BINANCE",         "label": "Binance spot",           "minDailyVolume": 50000000 }
+]
+```
+
+`markets.symbols` and `markets.watchedMarkets` are the market's coins watched right now; with
+volume selection on they change while the service runs. `markets.fixedSymbols` are the
+always-watched ones from the configuration, as that market spells them (`1000SHIBUSDT` on futures
+is `SHIBUSDT` on spot), and `markets.volumeSelection` holds the selection settings, with the
+market's own `minDailyVolume`.
 
 ### `GET /api/watchlist`
 
-Which coins are analysed, and why each one is there. Every coin is analysed on every configured
-timeframe.
+Which coins are analysed on one market (`exchange`, default the first), and why each one is there.
+Every coin is analysed on every configured timeframe.
 
 ```json
 {
@@ -240,7 +256,7 @@ timeframe.
     { "symbol": "PEPEUSDT", "source": "VOLUME", "dailyVolume": 54540000,
       "selectedAt": "2026-11-10T07:54:26Z" }
   ],
-  "rule": { "quoteAsset": "USDT", "minDailyVolume": 5000000, "window": "PT168H", "maxSymbols": 50,
+  "rule": { "quoteAsset": "USDT", "minDailyVolume": 300000000, "window": "PT168H", "maxSymbols": 0,
             "keepPercent": 70.0, "minPriceRangePercent": 1.0,
             "excludeTags": ["stablecoin", "bStocks", "tCommodities"],
             "excludeAssets": ["EUR", "WBTC", "WBETH", "BNSOL"], "refreshInterval": "PT24H" },
@@ -259,8 +275,9 @@ timeframe.
 | `symbols[].selectedAt` | When a `VOLUME` coin joined the list. |
 | `lastError` | Why the last refresh failed, if it did. The list is then kept as it was and retried after 15 minutes. |
 
-How coins are chosen: those averaging at least `minDailyVolume` a day over `window`, highest first,
-up to `maxSymbols` coins in all (fixed ones included). Coins Binance tags as stablecoins, tokenized
+How coins are chosen: those averaging at least `minDailyVolume` a day over `window` on this market
+(each market has its own), highest first, up to `maxSymbols` coins in all (fixed ones included;
+0 means no limit). Coins Binance tags as stablecoins, tokenized
 stocks (`bStocks`) or commodities (gold), the base assets in `excludeAssets`, and coins whose price
 moved less than `minPriceRangePercent` over the window are skipped. A coin already on the list stays
 until its volume falls below `keepPercent` of the threshold, so one near the line does not come and
@@ -269,22 +286,31 @@ become `EXPIRED`; its history stays.
 
 ### `GET /api/status`
 
-Pipeline health: whether startup backfill finished, whether the websocket is connected, and how far
-each market has been analysed.
+Pipeline health of one market (`exchange`, default the first): whether its startup backfill
+finished, whether its websocket is connected, and how far each coin and timeframe has been
+analysed. `exchanges` sums up every market.
 
 ```json
 {
+  "exchange": "BINANCE_FUTURES",
+  "label": "Binance USDⓈ-M futures",
   "bootstrap": "READY",
   "liveStream": { "running": true, "connected": true, "reconnects": 0,
                   "closedCandlesReceived": 412, "partialCandlesDropped": 8317 },
+  "exchanges": [
+    { "exchange": "BINANCE_FUTURES", "label": "Binance USDⓈ-M futures", "bootstrap": "READY",
+      "streamConnected": true, "markets": 90 },
+    { "exchange": "BINANCE", "label": "Binance spot", "bootstrap": "RUNNING",
+      "streamConnected": false, "markets": 41 }
+  ],
   "markets": [
-    { "market": "BTCUSDT:5m", "candlesStored": 2016, "candlesAnalysed": 2015,
+    { "market": "BTCUSDT:15m", "candlesStored": 2880, "candlesAnalysed": 2879,
       "gapsSeen": 0, "duplicatesIgnored": 0, "activeLevels": 23 }
   ]
 }
 ```
 
-`bootstrap` is `PENDING` → `RUNNING` → `READY`, or `FAILED`. The API serves requests throughout;
+`bootstrap` is `PENDING` → `RUNNING` → `READY`, or `FAILED`, per market: each starts on its own. The API serves requests throughout;
 startup runs on a background thread so a long first backfill never makes the service look dead to a
 health check.
 

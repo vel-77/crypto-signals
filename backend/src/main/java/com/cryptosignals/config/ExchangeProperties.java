@@ -4,35 +4,31 @@ import com.cryptosignals.exchange.ExchangeSettings;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 /**
- * Exchange connectivity. Addresses and the weight budget left empty (or 0) take the chosen venue's
- * own defaults, so switching {@link #name} is all it takes to move between spot and futures.
+ * Exchange connectivity. Each market uses its own addresses and request budget (Binance limits
+ * spot and futures separately); the settings here are shared by all of them.
  */
 @ConfigurationProperties(prefix = "crypto-signals.exchange")
 public class ExchangeProperties {
 
     /**
-     * Which {@code ExchangeClient} implementation to activate, matched against its name: BINANCE
-     * (spot) or BINANCE_FUTURES (USDⓈ-M perpetual futures).
+     * The markets to run, each on its own: BINANCE (spot) and / or BINANCE_FUTURES (USDⓈ-M
+     * perpetual futures). The first is the default the API answers for and the web interface
+     * opens on.
      */
-    private String name = "BINANCE";
-
-    /** Empty means the venue's own address. */
-    private String restBaseUrl = "";
-    private String wsBaseUrl = "";
+    private List<String> venues = new ArrayList<>(List.of("BINANCE"));
 
     private Duration connectTimeout = Duration.ofSeconds(10);
     private Duration readTimeout = Duration.ofSeconds(30);
 
     /** Candles requested per REST page. Binance caps this at 1000. */
     private int klinePageSize = 1000;
-
-    /**
-     * Request-weight budget per minute; 0 means the venue's default, which leaves generous headroom
-     * under what Binance allows (6000/min on spot, 2400/min on futures) so a backfill never trips a ban.
-     */
-    private int maxWeightPerMinute = 0;
 
     private int maxRetries = 5;
     private Duration retryBackoff = Duration.ofSeconds(1);
@@ -54,39 +50,35 @@ public class ExchangeProperties {
     private String symbolTagsUrl = ExchangeSettings.DEFAULT_SYMBOL_TAGS_URL;
 
     /**
-     * Adapts external configuration into the exchange layer's own settings type, filling in the
-     * venue's defaults wherever nothing was set.
+     * Adapts external configuration into the exchange layer's own settings type, for one market:
+     * its addresses and its request budget.
      */
-    public ExchangeSettings toSettings(String defaultRestBaseUrl, String defaultWsBaseUrl,
-                                       int defaultMaxWeightPerMinute) {
-        return new ExchangeSettings(
-                isBlank(restBaseUrl) ? defaultRestBaseUrl : restBaseUrl.trim(),
-                isBlank(wsBaseUrl) ? defaultWsBaseUrl : wsBaseUrl.trim(),
-                connectTimeout, readTimeout, klinePageSize,
-                maxWeightPerMinute > 0 ? maxWeightPerMinute : defaultMaxWeightPerMinute,
+    public ExchangeSettings toSettings(String restBaseUrl, String wsBaseUrl, int maxWeightPerMinute) {
+        return new ExchangeSettings(restBaseUrl, wsBaseUrl,
+                connectTimeout, readTimeout, klinePageSize, maxWeightPerMinute,
                 maxRetries, retryBackoff, reconnectMinBackoff, reconnectMaxBackoff, streamStaleAfter,
                 symbolTagsUrl);
     }
 
-    private static boolean isBlank(String value) {
-        return value == null || value.isBlank();
+    public List<String> getVenues() { return venues; }
+    /** Stored markets are filed under these names, so they are kept in one spelling. */
+    public void setVenues(List<String> v) {
+        Set<String> names = new LinkedHashSet<>();
+        if (v != null) {
+            for (String name : v) {
+                if (name != null && !name.isBlank()) {
+                    names.add(name.trim().toUpperCase(Locale.ROOT));
+                }
+            }
+        }
+        this.venues = new ArrayList<>(names);
     }
-
-    public String getName() { return name; }
-    /** Stored markets are filed under this name, so it is kept in one spelling. */
-    public void setName(String v) { this.name = v == null ? null : v.trim().toUpperCase(java.util.Locale.ROOT); }
-    public String getRestBaseUrl() { return restBaseUrl; }
-    public void setRestBaseUrl(String v) { this.restBaseUrl = v; }
-    public String getWsBaseUrl() { return wsBaseUrl; }
-    public void setWsBaseUrl(String v) { this.wsBaseUrl = v; }
     public Duration getConnectTimeout() { return connectTimeout; }
     public void setConnectTimeout(Duration v) { this.connectTimeout = v; }
     public Duration getReadTimeout() { return readTimeout; }
     public void setReadTimeout(Duration v) { this.readTimeout = v; }
     public int getKlinePageSize() { return klinePageSize; }
     public void setKlinePageSize(int v) { this.klinePageSize = v; }
-    public int getMaxWeightPerMinute() { return maxWeightPerMinute; }
-    public void setMaxWeightPerMinute(int v) { this.maxWeightPerMinute = v; }
     public int getMaxRetries() { return maxRetries; }
     public void setMaxRetries(int v) { this.maxRetries = v; }
     public Duration getRetryBackoff() { return retryBackoff; }

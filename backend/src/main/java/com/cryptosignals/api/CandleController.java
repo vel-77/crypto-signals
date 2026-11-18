@@ -1,7 +1,7 @@
 package com.cryptosignals.api;
 
 import com.cryptosignals.api.dto.Dtos;
-import com.cryptosignals.config.ExchangeProperties;
+import com.cryptosignals.config.Venues;
 import com.cryptosignals.domain.Candle;
 import com.cryptosignals.domain.MarketKey;
 import com.cryptosignals.domain.Timeframe;
@@ -35,19 +35,20 @@ public class CandleController {
 
     private final CandleJdbcRepository candles;
     private final MarketRepository markets;
-    private final ExchangeProperties exchangeProperties;
+    private final Venues venues;
 
-    public CandleController(CandleJdbcRepository candles, MarketRepository markets,
-                            ExchangeProperties exchangeProperties) {
+    public CandleController(CandleJdbcRepository candles, MarketRepository markets, Venues venues) {
         this.candles = candles;
         this.markets = markets;
-        this.exchangeProperties = exchangeProperties;
+        this.venues = venues;
     }
 
     @GetMapping
     @Operation(summary = "Stored candles for a market",
             description = "Defaults to the most recent 500 candles when no range is given.")
     public ResponseEntity<List<Dtos.CandleDto>> list(
+            @Parameter(description = "market: BINANCE_FUTURES or BINANCE; default the first one running")
+            @RequestParam(required = false) String exchange,
             @Parameter(required = true, description = "e.g. BTCUSDT") @RequestParam String symbol,
             @Parameter(required = true, description = "e.g. 5m") @RequestParam String timeframe,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
@@ -56,7 +57,7 @@ public class CandleController {
 
         MarketKey key = new MarketKey(symbol, Timeframe.fromCode(timeframe));
         Optional<MarketEntity> market = markets.findByExchangeAndSymbolAndTimeframe(
-                exchangeProperties.getName(), key.symbol(), key.timeframe().code());
+                venues.resolve(exchange).name(), key.symbol(), key.timeframe().code());
         if (market.isEmpty()) {
             return ResponseEntity.notFound().build();
         }

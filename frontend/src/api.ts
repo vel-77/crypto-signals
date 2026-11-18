@@ -37,6 +37,10 @@ async function get<T>(path: string): Promise<T> {
   return response.json() as Promise<T>
 }
 
+/**
+ * Every list, chart, status and config call names the market it is about (BINANCE_FUTURES or
+ * BINANCE); without one the server answers for the first market it runs.
+ */
 export const api = {
   signals: (f: Record<string, QueryValue>) =>
     get<Page<Signal>>(`/signals${query(f)}`),
@@ -48,12 +52,12 @@ export const api = {
 
   level: (id: string) => get<Level>(`/levels/${id}`),
 
-  candles: (symbol: string, timeframe: string, limit = 500) =>
-    get<Candle[]>(`/candles${query({ symbol, timeframe, limit })}`),
+  candles: (symbol: string, timeframe: string, limit = 500, exchange?: string) =>
+    get<Candle[]>(`/candles${query({ exchange, symbol, timeframe, limit })}`),
 
-  config: () => get<Record<string, unknown>>('/config'),
+  config: (exchange?: string) => get<Record<string, unknown>>(`/config${query({ exchange })}`),
 
-  status: () => get<Record<string, unknown>>('/status'),
+  status: (exchange?: string) => get<Record<string, unknown>>(`/status${query({ exchange })}`),
 
-  watchList: () => get<WatchList>('/watchlist'),
+  watchList: (exchange?: string) => get<WatchList>(`/watchlist${query({ exchange })}`),
 }

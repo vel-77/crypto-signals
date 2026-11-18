@@ -5,11 +5,10 @@ import com.cryptosignals.analysis.LevelAnalysisEngineFactory;
 import com.cryptosignals.analysis.engine.EngineUpdate;
 import com.cryptosignals.analysis.model.TradingSignal;
 import com.cryptosignals.config.AnalysisProperties;
-import com.cryptosignals.config.ExchangeProperties;
+import com.cryptosignals.config.Venue;
 import com.cryptosignals.domain.Candle;
 import com.cryptosignals.domain.MarketKey;
 import com.cryptosignals.domain.Timeframe;
-import com.cryptosignals.exchange.ExchangeClient;
 import com.cryptosignals.notifications.NotificationService;
 import com.cryptosignals.persistence.AnalysisResultStore;
 import com.cryptosignals.persistence.entity.MarketEntity;
@@ -20,6 +19,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -28,7 +28,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Owns one analysis engine per market and drives candles through it.
+ * Owns one analysis engine per market and drives candles through it. Markets are told apart by
+ * venue as well as by coin and timeframe: BTCUSDT:15m on spot and on futures are two engines.
  *
  * <h2>Engine state is derived, never persisted</h2>
  * On startup each market's engine is rebuilt from scratch by replaying stored candles. Nothing
@@ -46,39 +47,35 @@ public class MarketAnalysisService {
     /** Candles pulled per page during replay; bounds memory without a long-lived transaction. */
     private static final int REPLAY_PAGE_SIZE = 5_000;
 
-    private final LevelAnalysisEngineFactory engineFactory;
     private final AnalysisProperties analysisProperties;
-    private final ExchangeProperties exchangeProperties;
     private final CandleJdbcRepository candles;
     private final AnalysisResultStore store;
     private final NotificationService notifications;
     private final MarketDataService marketData;
-    private final ExchangeClient exchange;
     private final NextPotentialService nextPotential;
     private final MarketRepository markets;
 
-    private final Map<MarketKey, MarketEngine> engines = new ConcurrentHashMap<>();
+    /** Venue name, then market. */
+    private final Map<String, Map<MarketKey, MarketEngine>> engines = new ConcurrentHashMap<>();
 
-    public MarketAnalysisService(LevelAnalysisEngineFactory engineFactory,
-                                 AnalysisProperties analysisProperties,
-                                 ExchangeProperties exchangeProperties,
+    public MarketAnalysisService(AnalysisProperties analysisProperties,
                                  CandleJdbcRepository candles,
                                  AnalysisResultStore store,
                                  NotificationService notifications,
                                  MarketDataService marketData,
-                                 ExchangeClient exchange,
                                  NextPotentialService nextPotential,
                                  MarketRepository markets) {
-        this.engineFactory = engineFactory;
         this.analysisProperties = analysisProperties;
-        this.exchangeProperties = exchangeProperties;
         this.candles = candles;
         this.store = store;
         this.notifications = notifications;
         this.marketData = marketData;
-        this.exchange = exchange;
         this.nextPotential = nextPotential;
         this.markets = markets;
+    }
+
+    private Map<MarketKey, MarketEngine> enginesOf(String venue) {
+        return engines.computeIfAbsent(venue, v -> new ConcurrentHashMap<>());
     }
 
     /** The rules for one market; the supersede distance depends on its timeframe. */
@@ -87,17 +84,18 @@ public class MarketAnalysisService {
     }
 
     /** Creates (or returns) the engine for a market, registering the market row if new. */
-    public MarketEngine initialise(MarketKey key) {
-        return engines.computeIfAbsent(key, k -> {
-            MarketEntity market = store.resolveMarket(exchangeProperties.getName(), k);
+    public MarketEngine initialise(Venue venue, MarketKey key) {
+        return enginesOf(venue.name()).computeIfAbsent(key, k -> {
+            MarketEntity market = store.resolveMarket(venue.name(), k);
             // Live engines drop completed levels once reported: those rows already live in the
             // database, and holding them forever would make memory grow without bound.
             AnalysisConfig config = configFor(k);
-            var engine = engineFactory.create(k, config, false);
-            log.info("Initialised engine for {} (strategy: {}, config: {}, supersede distance: {}%)",
-                    k, engineFactory.detectionStrategyName(), config.fingerprint(),
+            LevelAnalysisEngineFactory factory = venue.engineFactory();
+            var engine = factory.create(k, config, false);
+            log.info("Initialised engine for {} on {} (strategy: {}, config: {}, supersede distance: {}%)",
+                    k, venue.name(), factory.detectionStrategyName(), config.fingerprint(),
                     config.supersedeMaxDistancePercent());
-            return new MarketEngine(k, market, engine);
+            return new MarketEngine(venue, k, market, engine);
         });
     }
 
@@ -137,7 +135,7 @@ public class MarketAnalysisService {
 
         marketEngine.switchToLive();
         log.info("Replayed {} candles for {} in {} ms: {} historical signal(s)",
-                processed, key, System.currentTimeMillis() - startedAt, signalsFound);
+                processed, marketEngine.describe(), System.currentTimeMillis() - startedAt, signalsFound);
         return processed;
     }
 
@@ -148,10 +146,10 @@ public class MarketAnalysisService {
      * pulled from the exchange and replayed first. That is what makes a websocket reconnect
      * lossless: the socket only has to come back, and this closes whatever hole it left behind.
      */
-    public void ingestLiveCandle(MarketKey key, Candle candle) {
-        MarketEngine marketEngine = engines.get(key);
+    public void ingestLiveCandle(String venue, MarketKey key, Candle candle) {
+        MarketEngine marketEngine = enginesOf(venue).get(key);
         if (marketEngine == null) {
-            log.warn("Received a candle for unregistered market {}; ignoring", key);
+            log.warn("Received a candle for unregistered market {} on {}; ignoring", key, venue);
             return;
         }
         try {
@@ -161,12 +159,12 @@ public class MarketAnalysisService {
             EngineUpdate update = marketEngine.process(candle);
             persist(marketEngine, update);
             for (TradingSignal signal : update.newSignals()) {
-                notifications.dispatch(signal);
+                notifications.dispatch(signal, marketEngine.venue().name());
             }
         } catch (Exception ex) {
             // A single bad candle must never kill the stream for every other market.
             log.error("Failed to ingest candle for {} at {}: {}",
-                    key, Instant.ofEpochMilli(candle.openTime()), ex.toString(), ex);
+                    marketEngine.describe(), Instant.ofEpochMilli(candle.openTime()), ex.toString(), ex);
         }
     }
 
@@ -201,13 +199,13 @@ public class MarketAnalysisService {
             }
             persist(marketEngine, update);
             for (TradingSignal signal : update.newSignals()) {
-                notifications.dispatch(signal);
+                notifications.dispatch(signal, marketEngine.venue().name());
             }
             analysed++;
         }
         if (analysed > 0) {
             log.info("Caught up {} candle(s) for {} that the live stream had not delivered",
-                    analysed, marketEngine.key());
+                    analysed, marketEngine.describe());
         }
         return analysed;
     }
@@ -223,7 +221,7 @@ public class MarketAnalysisService {
                 store.reconcileWithEngine(marketEngine.market().getId(), engine.activeLevelIds()));
         if (outcome.changedAnything()) {
             log.info("Reconciled stored levels for {}: {} level(s) no longer tracked marked EXPIRED, "
-                    + "{} signal(s) aligned with their level", marketEngine.key(),
+                    + "{} signal(s) aligned with their level", marketEngine.describe(),
                     outcome.levelsRetired(), outcome.signalsRetired());
         }
         return outcome;
@@ -238,9 +236,9 @@ public class MarketAnalysisService {
 
         long missing = (candle.openTime() - last) / step - 1;
         log.info("Detected {} missing candle(s) for {} before {}; refetching",
-                missing, marketEngine.key(), Instant.ofEpochMilli(candle.openTime()));
+                missing, marketEngine.describe(), Instant.ofEpochMilli(candle.openTime()));
 
-        List<Candle> recovered = exchange.fetchCandles(marketEngine.key().symbol(),
+        List<Candle> recovered = marketEngine.venue().client().fetchCandles(marketEngine.key().symbol(),
                 marketEngine.key().timeframe(),
                 Instant.ofEpochMilli(last + step),
                 Instant.ofEpochMilli(candle.openTime() - step),
@@ -253,14 +251,15 @@ public class MarketAnalysisService {
             EngineUpdate update = marketEngine.process(gapCandle);
             persist(marketEngine, update);
             for (TradingSignal signal : update.newSignals()) {
-                notifications.dispatch(signal);
+                notifications.dispatch(signal, marketEngine.venue().name());
             }
         }
     }
 
     private void persist(MarketEngine marketEngine, EngineUpdate update) {
         store.apply(marketEngine.market(), update,
-                engineFactory.detectionStrategyName(), marketEngine.unsafeEngine().config().fingerprint());
+                marketEngine.venue().engineFactory().detectionStrategyName(),
+                marketEngine.unsafeEngine().config().fingerprint());
         if (!update.newSignals().isEmpty()) {
             fillNextPotential(marketEngine);
         }
@@ -276,12 +275,12 @@ public class MarketAnalysisService {
                     marketEngine.unsafeEngine().config());
             if (updated > 1) {
                 log.info("Worked out the next potential low/high of {} signal(s) for {}",
-                        updated, marketEngine.key());
+                        updated, marketEngine.describe());
             }
             return updated;
         } catch (Exception ex) {
             log.warn("Could not work out next potential low/high for {}: {}",
-                    marketEngine.key(), ex.toString());
+                    marketEngine.describe(), ex.toString());
             return 0;
         }
     }
@@ -291,10 +290,11 @@ public class MarketAnalysisService {
      * watched, e.g. a timeframe taken off the watch list. No engine runs for them, so nothing else
      * would, and their candles are still stored.
      */
-    public int fillNextPotentialOfUnwatchedMarkets() {
+    public int fillNextPotentialOfUnwatchedMarkets(Venue venue) {
         int total = 0;
+        Map<MarketKey, MarketEngine> running = enginesOf(venue.name());
         for (MarketEntity market : markets.findAll()) {
-            if (!market.getExchange().equals(exchangeProperties.getName())) {
+            if (!market.getExchange().equals(venue.name())) {
                 continue;
             }
             MarketKey key;
@@ -303,19 +303,19 @@ public class MarketAnalysisService {
             } catch (IllegalArgumentException ex) {
                 continue;
             }
-            if (engines.containsKey(key)) {
+            if (running.containsKey(key)) {
                 continue;
             }
             try {
                 int updated = nextPotential.fillMissing(market.getId(), key, configFor(key));
                 if (updated > 0) {
-                    log.info("Worked out the next potential low/high of {} signal(s) for unwatched {}",
-                            updated, key);
+                    log.info("Worked out the next potential low/high of {} signal(s) for unwatched {} on {}",
+                            updated, key, venue.name());
                 }
                 total += updated;
             } catch (Exception ex) {
-                log.warn("Could not work out next potential low/high for unwatched {}: {}",
-                        key, ex.toString());
+                log.warn("Could not work out next potential low/high for unwatched {} on {}: {}",
+                        key, venue.name(), ex.toString());
             }
         }
         return total;
@@ -325,8 +325,8 @@ public class MarketAnalysisService {
      * Stops analysing a market: its engine is dropped, so live candles for it are ignored until it
      * is initialised again. Everything stored about it stays.
      */
-    public void discard(MarketKey key) {
-        engines.remove(key);
+    public void discard(String venue, MarketKey key) {
+        enginesOf(venue).remove(key);
     }
 
     /**
@@ -341,11 +341,12 @@ public class MarketAnalysisService {
      *
      * @return how many levels were retired
      */
-    public int retireUnwatchedMarkets(Set<String> watchedSymbols, Collection<Timeframe> watchedTimeframes) {
+    public int retireUnwatchedMarkets(String venue, Set<String> watchedSymbols,
+                                      Collection<Timeframe> watchedTimeframes) {
         int retired = 0;
+        Map<MarketKey, MarketEngine> running = enginesOf(venue);
         for (MarketEntity market : markets.findAll()) {
-            if (!market.getExchange().equals(exchangeProperties.getName())
-                    || watchedSymbols.contains(market.getSymbol())) {
+            if (!market.getExchange().equals(venue) || watchedSymbols.contains(market.getSymbol())) {
                 continue;
             }
             MarketKey key;
@@ -354,24 +355,32 @@ public class MarketAnalysisService {
             } catch (IllegalArgumentException ex) {
                 continue;
             }
-            if (!watchedTimeframes.contains(key.timeframe()) || engines.containsKey(key)) {
+            if (!watchedTimeframes.contains(key.timeframe()) || running.containsKey(key)) {
                 continue;
             }
             AnalysisResultStore.Reconciliation outcome = store.reconcileWithEngine(market.getId(), Set.of());
             if (outcome.changedAnything()) {
-                log.info("{} is no longer watched: {} level(s) marked EXPIRED, {} signal(s) with them",
-                        key, outcome.levelsRetired(), outcome.signalsRetired());
+                log.info("{} on {} is no longer watched: {} level(s) marked EXPIRED, {} signal(s) with them",
+                        key, venue, outcome.levelsRetired(), outcome.signalsRetired());
             }
             retired += outcome.levelsRetired();
         }
         return retired;
     }
 
-    public Optional<MarketEngine> engine(MarketKey key) {
-        return Optional.ofNullable(engines.get(key));
+    public Optional<MarketEngine> engine(String venue, MarketKey key) {
+        return Optional.ofNullable(enginesOf(venue).get(key));
     }
 
-    public Collection<MarketEngine> allEngines() {
-        return engines.values();
+    /** The engines of one market. */
+    public Collection<MarketEngine> engines(String venue) {
+        return enginesOf(venue).values();
+    }
+
+    /** Every engine, of every market. */
+    public List<MarketEngine> allEngines() {
+        List<MarketEngine> all = new ArrayList<>();
+        engines.values().forEach(byKey -> all.addAll(byKey.values()));
+        return all;
     }
 }

@@ -7,6 +7,7 @@ import com.cryptosignals.domain.Timeframe;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Everything the system needs from a trading venue — the abstraction required by specification
@@ -22,8 +23,8 @@ import java.util.List;
 public interface ExchangeClient {
 
     /**
-     * Matched against {@code crypto-signals.exchange.name} to select the active venue, and the name
-     * stored markets are filed under, so each venue's candles, levels and signals stay apart.
+     * Matched against {@code crypto-signals.exchange.venues} to select the venues to run, and the
+     * name stored markets are filed under, so each venue's candles, levels and signals stay apart.
      */
     String name();
 
@@ -53,6 +54,15 @@ public interface ExchangeClient {
 
     /** Whether the venue currently lists this symbol for trading. */
     boolean supportsSymbol(String symbol);
+
+    /**
+     * How this venue spells a coin's symbol, for a symbol configured once for several venues:
+     * Binance futures trade SHIB as {@code 1000SHIBUSDT}, spot as {@code SHIBUSDT}. The symbol
+     * itself when the venue lists it; empty when it lists the coin under no spelling it knows.
+     */
+    default Optional<String> listedSymbol(String symbol) {
+        return supportsSymbol(symbol) ? Optional.of(symbol) : Optional.empty();
+    }
 
     /**
      * Every symbol currently trading against {@code quoteAsset}, with how much of it traded

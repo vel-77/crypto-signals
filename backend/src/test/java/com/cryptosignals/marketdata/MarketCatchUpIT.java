@@ -1,5 +1,6 @@
 package com.cryptosignals.marketdata;
 
+import com.cryptosignals.config.Venues;
 import com.cryptosignals.domain.Candle;
 import com.cryptosignals.domain.LevelType;
 import com.cryptosignals.domain.MarketKey;
@@ -26,6 +27,7 @@ class MarketCatchUpIT extends PostgresIntegrationTest {
     private static final Timeframe TF = Timeframe.M5;
 
     @Autowired MarketAnalysisService analysisService;
+    @Autowired Venues venues;
     @Autowired CandleJdbcRepository candles;
     @Autowired SignalRepository signals;
 
@@ -39,7 +41,7 @@ class MarketCatchUpIT extends PostgresIntegrationTest {
         long start = TF.alignDown(System.currentTimeMillis()) - (long) (path.length + 2) * TF.durationMillis();
         List<Candle> series = Candles.fromPath(TF, start, path);
 
-        MarketEngine engine = analysisService.initialise(key);
+        MarketEngine engine = analysisService.initialise(venues.primary(), key);
         long marketId = engine.market().getId();
 
         // The stream delivers the first 40 candles, then dies silently.

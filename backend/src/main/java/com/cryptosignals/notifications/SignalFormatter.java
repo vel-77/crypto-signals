@@ -32,9 +32,20 @@ public class SignalFormatter {
     }
 
     public String format(TradingSignal signal) {
+        return format(signal, null);
+    }
+
+    /**
+     * @param marketLabel the market it was found on, e.g. "Binance USDⓈ-M futures"; null leaves
+     *                    the line out
+     */
+    public String format(TradingSignal signal, String marketLabel) {
         StringBuilder out = new StringBuilder(512);
 
         out.append("🔥 NEW ").append(signal.touchCount()).append("-TOUCH SIGNAL\n\n");
+        if (marketLabel != null && !marketLabel.isBlank()) {
+            out.append("Market: ").append(marketLabel).append('\n');
+        }
         out.append("Symbol: ").append(signal.market().symbol()).append('\n');
         out.append("Timeframe: ").append(signal.market().timeframe().code()).append("\n\n");
         out.append("Type: ").append(signal.type()).append("\n\n");

@@ -34,12 +34,14 @@ class EnvironmentBindingTest {
     private static final Map<String, String> SAMPLES = new LinkedHashMap<>();
 
     static {
-        SAMPLES.put("CRYPTO_SIGNALS_EXCHANGE_NAME", "binance_futures");
+        SAMPLES.put("CRYPTO_SIGNALS_EXCHANGE_VENUES", "binance_futures, binance");
         SAMPLES.put("CRYPTO_SIGNALS_MARKETS_SYMBOLS", "AUSDT,BUSDT");
         SAMPLES.put("CRYPTO_SIGNALS_MARKETS_TIMEFRAMES", "4h");
         SAMPLES.put("CRYPTO_SIGNALS_MARKETS_LOOKBACK", "7d");
         SAMPLES.put("CRYPTO_SIGNALS_MARKETS_VOLUME_SELECTION_ENABLED", "true");
         SAMPLES.put("CRYPTO_SIGNALS_MARKETS_VOLUME_SELECTION_MIN_DAILY_VOLUME", "123");
+        SAMPLES.put("CRYPTO_SIGNALS_MARKETS_VOLUME_SELECTION_MIN_DAILY_VOLUME_BY_EXCHANGE",
+                "BINANCE_FUTURES:300000000,binance:50_000_000");
         SAMPLES.put("CRYPTO_SIGNALS_MARKETS_VOLUME_SELECTION_MAX_SYMBOLS", "7");
         SAMPLES.put("CRYPTO_SIGNALS_ANALYSIS_MIN_TOUCHES", "4");
         SAMPLES.put("CRYPTO_SIGNALS_ANALYSIS_TOUCH_TOLERANCE_PERCENT", "0.12");
@@ -87,7 +89,7 @@ class EnvironmentBindingTest {
         Binder binder = Binder.get(environment);
 
         ExchangeProperties exchange = binder.bindOrCreate("crypto-signals.exchange", ExchangeProperties.class);
-        assertThat(exchange.getName()).isEqualTo("BINANCE_FUTURES");
+        assertThat(exchange.getVenues()).containsExactly("BINANCE_FUTURES", "BINANCE");
 
         MarketProperties markets = binder.bindOrCreate("crypto-signals.markets", MarketProperties.class);
         assertThat(markets.getSymbols()).containsExactly("AUSDT", "BUSDT");
@@ -95,6 +97,9 @@ class EnvironmentBindingTest {
         assertThat(markets.getLookback()).isEqualTo(Duration.ofDays(7));
         assertThat(markets.getVolumeSelection().isEnabled()).isTrue();
         assertThat(markets.getVolumeSelection().getMinDailyVolume()).isEqualTo(123);
+        assertThat(markets.getVolumeSelection().minDailyVolumeFor("BINANCE_FUTURES")).isEqualTo(300_000_000);
+        assertThat(markets.getVolumeSelection().minDailyVolumeFor("BINANCE")).isEqualTo(50_000_000);
+        assertThat(markets.getVolumeSelection().minDailyVolumeFor("OTHER")).isEqualTo(123);
         assertThat(markets.getVolumeSelection().getMaxSymbols()).isEqualTo(7);
 
         AnalysisProperties analysis = binder.bindOrCreate("crypto-signals.analysis", AnalysisProperties.class);

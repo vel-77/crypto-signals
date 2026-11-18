@@ -1,12 +1,15 @@
 package com.cryptosignals.marketdata;
 
-import com.cryptosignals.config.ExchangeProperties;
+import com.cryptosignals.analysis.LevelAnalysisEngineFactory;
 import com.cryptosignals.config.MarketProperties;
+import com.cryptosignals.config.Venue;
+import com.cryptosignals.config.Venues;
 import com.cryptosignals.domain.Candle;
 import com.cryptosignals.domain.MarketKey;
 import com.cryptosignals.domain.Timeframe;
 import com.cryptosignals.exchange.ExchangeClient;
 import com.cryptosignals.exchange.ExchangeException;
+import com.cryptosignals.exchange.ExchangeSettings;
 import com.cryptosignals.exchange.SymbolActivity;
 import com.cryptosignals.fixtures.Candles;
 import com.cryptosignals.persistence.AnalysisResultStore;
@@ -22,7 +25,7 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.convention.TestBean;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -58,16 +61,25 @@ class WatchListIT extends PostgresIntegrationTest {
 
     private static final Timeframe TF = Timeframe.H4;
 
-    @MockitoBean ExchangeClient exchange;
-    @Autowired WatchList watchList;
+    /** The exchange the watch list asks; stubbed by each test. */
+    private static final ExchangeClient exchange = Mockito.mock(ExchangeClient.class);
+    private static final Venue SPOT = new Venue("BINANCE", "Binance spot", exchange,
+            ExchangeSettings.defaults(), new LevelAnalysisEngineFactory());
+
+    @TestBean Venues venues;
+    @Autowired WatchLists watchLists;
     @Autowired MarketDataBootstrap bootstrap;
     @Autowired MarketAnalysisService analysisService;
     @Autowired AnalysisResultStore store;
     @Autowired CandleJdbcRepository candles;
     @Autowired WatchedSymbolRepository stored;
     @Autowired MarketProperties properties;
-    @Autowired ExchangeProperties exchangeProperties;
     @Autowired JdbcTemplate jdbc;
+    private WatchList watchList;
+
+    static Venues venues() {
+        return new Venues(List.of(SPOT));
+    }
 
     @BeforeEach
     void bootstrapDone() throws InterruptedException {
@@ -76,7 +88,9 @@ class WatchListIT extends PostgresIntegrationTest {
             Thread.sleep(50);
         }
         assertThat(bootstrap.state()).isEqualTo(MarketDataBootstrap.State.READY);
+        Mockito.reset(exchange);
         when(exchange.supportsSymbol(anyString())).thenReturn(true);
+        watchList = watchLists.of(SPOT);
     }
 
     private static SymbolActivity coin(String base, double dailyVolume, String... tags) {
@@ -94,12 +108,12 @@ class WatchListIT extends PostgresIntegrationTest {
                 99_000, 100_000, 99_000, 100_000, 99_000, 100_000, 99_500);
         long start = TF.alignDown(System.currentTimeMillis()) - (long) (path.length + 2) * TF.durationMillis();
         List<Candle> series = Candles.fromPath(TF, start, path);
-        MarketEntity market = store.resolveMarket(exchangeProperties.getName(), new MarketKey(symbol, TF));
+        MarketEntity market = store.resolveMarket(SPOT.name(), new MarketKey(symbol, TF));
         candles.upsert(market.getId(), series);
     }
 
     private long marketId(String symbol) {
-        return store.resolveMarket(exchangeProperties.getName(), new MarketKey(symbol, TF)).getId();
+        return store.resolveMarket(SPOT.name(), new MarketKey(symbol, TF)).getId();
     }
 
     private int count(String table, String symbol, String status) {
@@ -116,14 +130,14 @@ class WatchListIT extends PostgresIntegrationTest {
         assertThat(watchList.refresh()).hasValueSatisfying(change ->
                 assertThat(change.added()).containsExactly("AAAUSDT", "BBBUSDT"));
         assertThat(watchList.symbols()).containsExactly("FIXEDUSDT", "AAAUSDT", "BBBUSDT");
-        assertThat(stored.findAll(exchangeProperties.getName())).extracting(WatchedSymbol::symbol)
+        assertThat(stored.findAll(SPOT.name())).extracting(WatchedSymbol::symbol)
                 .containsExactly("AAAUSDT", "BBBUSDT");
 
-        bootstrap.applyWatchList();
+        bootstrap.applyWatchList(SPOT);
         for (String symbol : List.of("FIXEDUSDT", "AAAUSDT", "BBBUSDT")) {
-            assertThat(analysisService.engine(new MarketKey(symbol, TF))).as(symbol).isPresent();
+            assertThat(analysisService.engine(SPOT.name(), new MarketKey(symbol, TF))).as(symbol).isPresent();
         }
-        assertThat(analysisService.engine(new MarketKey("CCCUSDT", TF))).isEmpty();
+        assertThat(analysisService.engine(SPOT.name(), new MarketKey("CCCUSDT", TF))).isEmpty();
         assertThat(count("price_level", "BBBUSDT", "ACTIVE")).isPositive();
         assertThat(count("signal", "BBBUSDT", "ACTIVE")).isPositive();
 
@@ -133,11 +147,11 @@ class WatchListIT extends PostgresIntegrationTest {
             assertThat(change.added()).isEmpty();
             assertThat(change.removed()).containsExactly("BBBUSDT");
         });
-        bootstrap.applyWatchList();
+        bootstrap.applyWatchList(SPOT);
 
         assertThat(watchList.symbols()).containsExactly("FIXEDUSDT", "AAAUSDT");
-        assertThat(analysisService.engine(new MarketKey("BBBUSDT", TF))).isEmpty();
-        assertThat(analysisService.engine(new MarketKey("AAAUSDT", TF))).isPresent();
+        assertThat(analysisService.engine(SPOT.name(), new MarketKey("BBBUSDT", TF))).isEmpty();
+        assertThat(analysisService.engine(SPOT.name(), new MarketKey("AAAUSDT", TF))).isPresent();
         assertThat(count("price_level", "BBBUSDT", "ACTIVE")).isZero();
         assertThat(count("price_level", "BBBUSDT", "EXPIRED")).isPositive();
         assertThat(count("signal", "BBBUSDT", "ACTIVE")).isZero();
@@ -146,7 +160,7 @@ class WatchListIT extends PostgresIntegrationTest {
         exchangeReports(coin("AAA", 5000), coin("BBB", 3000));
         assertThat(watchList.refresh()).hasValueSatisfying(change ->
                 assertThat(change.added()).containsExactly("BBBUSDT"));
-        bootstrap.applyWatchList();
+        bootstrap.applyWatchList(SPOT);
         assertThat(count("price_level", "BBBUSDT", "ACTIVE")).isPositive();
     }
 
@@ -162,11 +176,13 @@ class WatchListIT extends PostgresIntegrationTest {
 
         // As after a restart: a new instance over the same table.
         Instant now = Instant.now();
-        stored.replaceAll(exchangeProperties.getName(), List.of(
+        stored.replaceAll(SPOT.name(), List.of(
                 new WatchedSymbol("ZZZUSDT", 4000, now.minus(Duration.ofDays(3)), now)));
         ExchangeClient unreachable = Mockito.mock(ExchangeClient.class);
         when(unreachable.tradingActivity(any(), any())).thenThrow(new ExchangeException("offline", null));
-        WatchList restarted = new WatchList(properties, unreachable, stored, exchangeProperties);
+        when(unreachable.listedSymbol(anyString())).thenThrow(new ExchangeException("offline", null));
+        Venue offline = new Venue(SPOT.name(), SPOT.label(), unreachable, SPOT.settings(), SPOT.engineFactory());
+        WatchList restarted = new WatchList(properties, offline, stored);
 
         restarted.initialise();
 
@@ -176,8 +192,8 @@ class WatchListIT extends PostgresIntegrationTest {
         assertThat(restarted.nextAttemptAt()).isNotNull();
 
         // A first run (nothing stored) that cannot ask the exchange retires nothing.
-        stored.replaceAll(exchangeProperties.getName(), List.of());
-        WatchList firstRun = new WatchList(properties, unreachable, stored, exchangeProperties);
+        stored.replaceAll(SPOT.name(), List.of());
+        WatchList firstRun = new WatchList(properties, offline, stored);
         firstRun.initialise();
         assertThat(firstRun.symbols()).containsExactly("FIXEDUSDT");
         assertThat(firstRun.isSettled()).isFalse();

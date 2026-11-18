@@ -169,5 +169,33 @@ class VolumeRankingTest {
         assertThatThrownBy(() -> rules.setKeepPercent(120)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> rules.setMaxSymbols(-1)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> rules.setMinDailyVolume(-5)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> rules.setMinDailyVolumeByExchange("BINANCE=5"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("MARKET:volume");
+        assertThatThrownBy(() -> rules.setMinDailyVolumeByExchange("BINANCE:"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> rules.setMinDailyVolumeByExchange("BINANCE:300.000.000"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> rules.setMinDailyVolumeByExchange(":5"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("each market can have its own minimum; others use the default")
+    void minimumPerMarket() {
+        MarketProperties.VolumeSelection rules = rules();
+        rules.setMinDailyVolumeByExchange(" BINANCE_FUTURES:300000000 , binance:50_000_000 ");
+
+        assertThat(rules.minDailyVolumeFor("BINANCE_FUTURES")).isEqualTo(300 * M);
+        assertThat(rules.minDailyVolumeFor("binance")).isEqualTo(50 * M);
+        assertThat(rules.minDailyVolumeFor("BYBIT")).isEqualTo(5 * M);
+
+        List<SymbolActivity> activity = List.of(coin("AAA", 400), coin("BBB", 120), coin("CCC", 30));
+        assertThat(symbols(VolumeRanking.choose(activity, List.of(), Set.of(), rules,
+                rules.minDailyVolumeFor("BINANCE_FUTURES")))).containsExactly("AAAUSDT");
+        assertThat(symbols(VolumeRanking.choose(activity, List.of(), Set.of(), rules,
+                rules.minDailyVolumeFor("BINANCE")))).containsExactly("AAAUSDT", "BBBUSDT");
+
+        rules.setMinDailyVolumeByExchange("");
+        assertThat(rules.minDailyVolumeFor("BINANCE_FUTURES")).isEqualTo(5 * M);
     }
 }

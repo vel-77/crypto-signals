@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type QueryValue } from './api'
 import type { Filters as FilterState, Level, NextPotentialRule, Signal, WatchList } from './types'
 import { Filters } from './components/Filters'
@@ -9,7 +9,7 @@ import { MarketPanel } from './components/MarketPanel'
 import { WatchListView } from './components/WatchListView'
 import { knownAt, price } from './components/format'
 import { useTimeZone, zoneLabel, zoneOptions } from './timezone'
-import { ChartFeedContext, feedFor } from './venue'
+import { ChartFeedContext, feedFor, saveVenue, savedVenue, shortName, spellingOn, type Venue } from './venue'
 
 type Tab = 'signals' | 'levels' | 'config'
 
@@ -42,11 +42,12 @@ function loadSavedFilters(): FilterState {
  * status vocabularies, so only the statuses that exist on this tab are sent; an "8+" touch bucket
  * becomes an open-ended lower bound alongside the exact counts.
  */
-function toQuery(f: FilterState, tab: Tab): Record<string, QueryValue> {
+function toQuery(f: FilterState, tab: Tab, exchange: string): Record<string, QueryValue> {
   const validStatuses = tab === 'signals' ? SIGNAL_STATUSES : LEVEL_STATUSES
   const exact = f.touches.filter((t) => !t.endsWith('+'))
   const bucket = f.touches.find((t) => t.endsWith('+'))
   return {
+    exchange,
     symbol: f.symbols,
     timeframe: f.timeframes,
     type: f.types,
@@ -73,11 +74,17 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [symbols, setSymbols] = useState<string[]>([])
   const [timeframes, setTimeframes] = useState<string[]>([])
+  // The market shown: undefined until the server has said which ones it runs.
   const [exchange, setExchange] = useState<string | undefined>()
+  const [exchanges, setExchanges] = useState<Venue[]>([])
   const [totalItems, setTotalItems] = useState(0)
+  // Set on a switch of market: the coin filter is carried over once the new market's coins are known.
+  const carryCoinFilter = useRef(false)
+  // Only the latest list request may fill the list: an older one, for another market or other
+  // filters, can answer after it.
+  const latestLoad = useRef(0)
 
-  const updateFilters = (next: FilterState) => {
-    setFilters(next)
+  const persistFilters = (next: FilterState) => {
     try {
       localStorage.setItem(FILTER_KEY, JSON.stringify(next))
     } catch {
@@ -85,66 +92,135 @@ export default function App() {
     }
   }
 
+  const updateFilters = (next: FilterState) => {
+    setFilters(next)
+    persistFilters(next)
+  }
+
+  /** Shows another market: everything on the page is that market's from here on. */
+  const selectExchange = (name: string) => {
+    if (name === exchange) return
+    saveVenue(name)
+    setSelectedSignal(null)
+    setSelectedLevel(null)
+    setSignals([])
+    setLevels([])
+    setTotalItems(0)
+    setWatchList(null)
+    setConfig(null)
+    setStatus(null)
+    setSymbols([])
+    carryCoinFilter.current = true
+    setExchange(name)
+  }
+
   const load = useCallback(async () => {
+    if (!exchange) return
+    const request = ++latestLoad.current
+    const current = () => request === latestLoad.current
     setLoading(true)
     setError(null)
     try {
       if (tab === 'signals') {
-        const page = await api.signals(toQuery(filters, tab))
+        const page = await api.signals(toQuery(filters, tab, exchange))
+        if (!current()) return
         setSignals(page.items)
         setTotalItems(page.totalItems)
       } else if (tab === 'levels') {
-        const page = await api.levels(toQuery(filters, tab))
+        const page = await api.levels(toQuery(filters, tab, exchange))
+        if (!current()) return
         setLevels(page.items)
         setTotalItems(page.totalItems)
       } else {
-        const [c, w] = await Promise.all([api.config(), api.watchList()])
+        const [c, w] = await Promise.all([api.config(exchange), api.watchList(exchange)])
+        if (!current()) return
         setConfig(c)
         setWatchList(w)
       }
     } catch (e) {
-      setError((e as Error).message)
+      if (current()) setError((e as Error).message)
     } finally {
-      setLoading(false)
+      if (current()) setLoading(false)
     }
-  }, [tab, filters])
+  }, [tab, filters, exchange])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  // The filters offer only what the server actually watches, so they never suggest a market
-  // that has no data. Re-read now and then: the server adjusts its coin list by trading volume.
+  // Which markets the server runs, and for the one shown, what it watches: the filters offer only
+  // that, so they never suggest a market that has no data. Re-read now and then: the server
+  // adjusts its coin lists by trading volume. Until the markets are known, retry soon.
   useEffect(() => {
-    const read = () =>
-      api.config()
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    // Every 10 minutes once this market's coins are in; every 15 seconds until then.
+    const again = (loaded: boolean) => {
+      if (!cancelled) timer = setTimeout(read, loaded ? 10 * 60_000 : 15_000)
+    }
+    const read = (): Promise<void> =>
+      api.config(exchange)
         .then((c) => {
+          if (cancelled) return
+          const own = c.exchange as Venue | undefined
+          const running = (c.exchanges as Venue[] | undefined) ?? (own ? [own] : [])
+          setExchanges(running)
+          if (!exchange || !running.some((v) => v.name === exchange)) {
+            // First answer, or the market shown is no longer run: open the one this browser
+            // looked at last, else the server's default. The effect then runs again for it.
+            const saved = savedVenue()
+            const pick = running.find((v) => v.name === saved)?.name ?? running[0]?.name
+            setExchange(pick)
+            if (!pick) again(false)
+            return
+          }
           const markets = c.markets as { symbols?: string[]; timeframes?: string[] } | undefined
-          setSymbols(markets?.symbols ?? [])
+          const watched = markets?.symbols ?? []
+          if (carryCoinFilter.current) {
+            // The coins picked on the other market, as this one spells them; ones it does not
+            // watch are dropped rather than leave an empty list.
+            carryCoinFilter.current = false
+            setFilters((current) => {
+              const carried = current.symbols
+                .map((s) => spellingOn(s, watched))
+                .filter((s, i, all): s is string => s !== null && all.indexOf(s) === i)
+              if (carried.length === current.symbols.length && carried.every((s, i) => s === current.symbols[i])) {
+                return current
+              }
+              const next = { ...current, symbols: carried }
+              persistFilters(next)
+              return next
+            })
+          }
+          setSymbols(watched)
           setTimeframes(markets?.timeframes ?? [])
           setNextPotentialRule((c.nextPotential as NextPotentialRule | undefined) ?? null)
-          setExchange((c.exchange as { name?: string } | undefined)?.name)
+          again(true)
         })
-        .catch(() => {})
+        .catch(() => again(false))
     void read()
-    const handle = setInterval(read, 10 * 60_000)
-    return () => clearInterval(handle)
-  }, [])
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [exchange])
 
   // Poll the pipeline status so the header reflects reality without a manual refresh.
   useEffect(() => {
+    if (!exchange) return
     let cancelled = false
-    const tick = () => api.status().then((s) => !cancelled && setStatus(s)).catch(() => {})
+    const tick = () => api.status(exchange).then((s) => !cancelled && setStatus(s)).catch(() => {})
     void tick()
     const handle = setInterval(tick, 15_000)
     return () => {
       cancelled = true
       clearInterval(handle)
     }
-  }, [])
+  }, [exchange])
 
   const stream = status?.liveStream as { connected?: boolean } | undefined
   const bootstrap = status?.bootstrap as string | undefined
+  const venueStates = (status?.exchanges as { exchange: string; streamConnected?: boolean }[] | undefined) ?? []
   const tz = zoneLabel(timeZone)
 
   return (
@@ -152,6 +228,23 @@ export default function App() {
     <div className="app">
       <header className="header">
         <div className="brand">crypto<span>·</span>signals</div>
+        {exchanges.length > 1 ? (
+          <div className="venue-switch" role="radiogroup" aria-label="Market">
+            {exchanges.map((v) => {
+              const live = venueStates.find((s) => s.exchange === v.name)?.streamConnected
+              return (
+                <button key={v.name} type="button" role="radio" aria-checked={v.name === exchange}
+                        className="venue" title={`${v.label}${live === false ? ' — live stream down' : ''}`}
+                        onClick={() => selectExchange(v.name)}>
+                  <span className={`venue-dot ${live ? 'live' : live === false ? 'down' : ''}`} aria-hidden />
+                  {shortName(v)}
+                </button>
+              )
+            })}
+          </div>
+        ) : exchanges.length === 1 ? (
+          <span className="venue-only faint" title={exchanges[0].label}>{shortName(exchanges[0])}</span>
+        ) : null}
         <nav className="tabs" role="tablist">
           {(['signals', 'levels', 'config'] as Tab[]).map((t) => (
             <button key={t} className="tab" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>

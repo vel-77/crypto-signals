@@ -29,13 +29,10 @@ public class MarketDataService {
     /** Binance's own beginning; used when the configured lookback is "everything available". */
     private static final Instant EXCHANGE_EPOCH = Instant.parse("2017-01-01T00:00:00Z");
 
-    private final ExchangeClient exchange;
     private final CandleJdbcRepository candles;
     private final MarketProperties properties;
 
-    public MarketDataService(ExchangeClient exchange, CandleJdbcRepository candles,
-                             MarketProperties properties) {
-        this.exchange = exchange;
+    public MarketDataService(CandleJdbcRepository candles, MarketProperties properties) {
         this.candles = candles;
         this.properties = properties;
     }
@@ -54,8 +51,10 @@ public class MarketDataService {
      * reaches further into the past than what is stored, and forwards from the newest stored candle
      * to now. A restart after an hour of downtime therefore costs one small request, not a full
      * re-download.
+     *
+     * @param exchange the market's own exchange: candles of spot and futures differ
      */
-    public int backfill(MarketEntity market, MarketKey key) {
+    public int backfill(ExchangeClient exchange, MarketEntity market, MarketKey key) {
         long marketId = market.getId();
         Instant desiredFrom = analysisStart();
         Instant now = Instant.now();
@@ -65,21 +64,21 @@ public class MarketDataService {
         var existingLast = candles.lastOpenTime(marketId);
 
         if (existingFirst.isEmpty()) {
-            stored += fetchInto(marketId, key, desiredFrom, now, properties.getMaxCandlesPerBackfill());
+            stored += fetchInto(exchange, marketId, key, desiredFrom, now, properties.getMaxCandlesPerBackfill());
         } else {
             if (desiredFrom.isBefore(existingFirst.get())) {
                 Instant to = existingFirst.get().minusMillis(key.timeframe().durationMillis());
-                stored += fetchInto(marketId, key, desiredFrom, to, properties.getMaxCandlesPerBackfill());
+                stored += fetchInto(exchange, marketId, key, desiredFrom, to, properties.getMaxCandlesPerBackfill());
             }
             Instant from = existingLast.orElse(desiredFrom)
                     .plusMillis(key.timeframe().durationMillis());
             if (from.isBefore(now)) {
-                stored += fetchInto(marketId, key, from, now, properties.getMaxCandlesPerBackfill());
+                stored += fetchInto(exchange, marketId, key, from, now, properties.getMaxCandlesPerBackfill());
             }
         }
 
-        log.info("Backfill {}: stored {} candles, {} total in range",
-                key, stored, candles.count(marketId));
+        log.info("Backfill {} on {}: stored {} candles, {} total in range",
+                key, market.getExchange(), stored, candles.count(marketId));
         return stored;
     }
 
@@ -89,7 +88,7 @@ public class MarketDataService {
      * <p>Gaps are found with a single indexed pass over the stored range, then each one is refetched
      * individually rather than re-downloading the whole history.
      */
-    public int healGaps(MarketEntity market, MarketKey key) {
+    public int healGaps(ExchangeClient exchange, MarketEntity market, MarketKey key) {
         long marketId = market.getId();
         Instant from = analysisStart();
         Instant to = Instant.now();
@@ -101,9 +100,9 @@ public class MarketDataService {
         long step = key.timeframe().durationMillis();
         int repaired = 0;
         for (CandleGap gap : gaps) {
-            log.info("Repairing gap in {}: {} candles missing between {} and {}",
-                    key, gap.missingCandles(), gap.afterOpenTime(), gap.beforeOpenTime());
-            repaired += fetchInto(marketId, key,
+            log.info("Repairing gap in {} on {}: {} candles missing between {} and {}",
+                    key, market.getExchange(), gap.missingCandles(), gap.afterOpenTime(), gap.beforeOpenTime());
+            repaired += fetchInto(exchange, marketId, key,
                     gap.afterOpenTime().plusMillis(step),
                     gap.beforeOpenTime().minusMillis(step),
                     (int) Math.min(gap.missingCandles() + 10, properties.getMaxCandlesPerBackfill()));
@@ -116,7 +115,8 @@ public class MarketDataService {
         candles.upsert(market.getId(), List.of(candle));
     }
 
-    private int fetchInto(long marketId, MarketKey key, Instant from, Instant to, int maxCandles) {
+    private int fetchInto(ExchangeClient exchange, long marketId, MarketKey key, Instant from, Instant to,
+                          int maxCandles) {
         if (!from.isBefore(to)) {
             return 0;
         }

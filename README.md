@@ -114,14 +114,15 @@ and can be overridden by environment variable. Nothing is hardcoded.
 ```yaml
 crypto-signals:
   exchange:
-    name: BINANCE                 # BINANCE (spot) or BINANCE_FUTURES (USDⓈ-M perpetuals);
-                                  # docker-compose runs BINANCE_FUTURES
+    venues: BINANCE               # BINANCE (spot) and / or BINANCE_FUTURES (USDⓈ-M perpetuals),
+                                  # each on its own; docker-compose runs BINANCE_FUTURES,BINANCE
   markets:
-    symbols: [BTCUSDT, ETHUSDT]   # always watched
+    symbols: [BTCUSDT, ETHUSDT]   # always watched, on every market
     volume-selection:             # ... plus the most traded other coins (on in docker-compose)
       enabled: false
-      min-daily-volume: 5000000   # USDT a day, averaged over the last 7 days
-      max-symbols: 50             # coins in all, fixed ones included
+      min-daily-volume: 5000000   # USDT a day, averaged over the last 7 days ...
+      min-daily-volume-by-exchange: ""   # ... or per market, e.g. BINANCE_FUTURES:300000000,BINANCE:50000000
+      max-symbols: 0              # coins per market, fixed ones included; 0 = no limit
       keep-percent: 70            # a watched coin stays until it falls below 70% of the threshold
     timeframes: [15m, 30m, 1h]    # each coin x timeframe is an independent analysis
     lookback: 30d                 # 24h / 7d / 30d / 365d; 0 = all available history
@@ -151,24 +152,29 @@ shows its **next potential low** (support) or **high** (resistance): the nearest
 least 1% beyond the signal price, as a percentage, in the list, in the signal's detail and on its
 chart.
 
-**Which market.** Coins, volumes, history and live candles all come from one Binance market,
-`EXCHANGE` in `.env`: `BINANCE_FUTURES` (USDⓈ-M perpetual futures, the docker-compose default) or
-`BINANCE` (spot). The chart in the browser reads the same market. Each market keeps its own
-stored candles, levels and signals, and the UI and API show only the running one's, so switching
-deletes nothing; the first start on a market downloads its `LOOKBACK` of history. A few coins are
-spelled differently on futures: SHIB, PEPE, BONK and FLOKI trade as `1000SHIBUSDT` and so on,
-priced per 1000 coins.
+**Which markets.** Binance USDⓈ-M perpetual futures and Binance spot run side by side, `EXCHANGES`
+in `.env` (`BINANCE_FUTURES,BINANCE` by default; name one to run only that). Each has its own coins,
+chosen by its own volumes, its own stored candles, levels and signals, its own live stream and its
+own request budget, and starts on its own thread. The web page has a **Futures | Spot** switch in
+the header that changes everything on the page, the chart in the browser included; it opens on the
+first market and remembers the last one picked. Every API query takes `exchange=BINANCE_FUTURES`
+or `exchange=BINANCE`, defaulting to the first. Telegram alerts name the market. A market's first
+start downloads its `LOOKBACK` of history. A few coins are spelled differently on futures: SHIB, PEPE,
+BONK and FLOKI trade as `1000SHIBUSDT` and so on, priced per 1000 coins; a fixed symbol given in
+either spelling is found on both markets.
 
-**Which coins.** The `symbols` are always watched. With volume selection on, the most traded other
-USDT coins are added: those averaging at least 5M USDT a day over the last 7 days, highest first,
-up to 50 coins in all. Stablecoins, tokenized stocks, gold, fiat and wrapped coins are skipped
-(Binance's own tags say which); on futures only perpetual contracts on crypto coins count, not the
-stock, commodity, index or pre-market ones, and a coin's 7-day volume is added up from its hourly
-candles, since futures have no 7-day ticker. The list is checked daily while running, so new coins are
-started and fading ones stopped without a restart; a dropped coin's open levels are marked
-`EXPIRED`, its history stays. `GET /api/watchlist` and the config tab show each coin and why it is
-there. Each coin adds about three markets' worth of memory and start-up time, so raise
-`MAX_SYMBOLS` with the server in mind.
+**Which coins.** The `symbols` are always watched, on every market. With volume selection on, each
+market adds every other USDT coin averaging at least its own minimum over the last 7 days:
+`FUTURES_MIN_DAILY_VOLUME` (300M USDT a day by default) on futures, `SPOT_MIN_DAILY_VOLUME` (50M)
+on spot, since futures trade several times what spot does. `MAX_SYMBOLS` caps the coins per
+market, highest volume first; 0, the default, means no cap. Stablecoins, tokenized stocks, gold,
+fiat and wrapped coins are skipped (Binance's own tags say which); on futures only perpetual
+contracts on crypto coins count, not the stock, commodity, index or pre-market ones, and a coin's
+7-day volume is added up from its hourly candles, since futures have no 7-day ticker. The lists are
+checked daily while running, so new coins are started and fading ones stopped without a restart; a
+dropped coin's open levels are marked `EXPIRED`, its history stays. `GET /api/watchlist` and the
+config tab show each coin and why it is there. Each coin adds about three markets' worth of memory
+and start-up time, so lower the minimums with the server in mind.
 
 `GET /api/config` returns exactly what the running engine is using, including a fingerprint that
 every stored level and signal is tagged with. Secrets are never included.
@@ -285,8 +291,8 @@ implementation of one method.
 
 ```bash
 cd backend
-mvn test                                        # 198 unit tests, no Docker needed
-mvn verify                                      # + 30 integration tests (real PostgreSQL)
+mvn test                                        # 204 unit tests, no Docker needed
+mvn verify                                      # + 31 integration tests (real PostgreSQL)
 mvn test -Dgroups=external -Dtest.excluded.groups=   # + 5 live Binance API tests
 ```
 

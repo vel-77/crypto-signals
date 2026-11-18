@@ -1,6 +1,7 @@
 package com.cryptosignals.backtest;
 
 import com.cryptosignals.config.AnalysisProperties;
+import com.cryptosignals.config.Venues;
 import com.cryptosignals.domain.MarketKey;
 import com.cryptosignals.domain.Timeframe;
 import org.slf4j.Logger;
@@ -25,7 +26,8 @@ import java.util.List;
  * java -jar crypto-signals.jar --backtest \
  *      --symbol=BTCUSDT --timeframe=5m \
  *      --from=2025-01-01 --to=2026-09-20 \
- *      --fetch --format=json --out=./signals.json
+ *      --fetch --format=json --out=./signals.json \
+ *      --exchange=BINANCE_FUTURES        (optional; default: the first configured market)
  * </pre>
  *
  * <p>When {@code --backtest} is present the application runs the analysis, writes its report and
@@ -43,14 +45,16 @@ public class BacktestCommandLineRunner implements ApplicationRunner {
     private final BacktestService backtestService;
     private final BacktestExporter exporter;
     private final AnalysisProperties analysisProperties;
+    private final Venues venues;
     private final ConfigurableApplicationContext context;
 
     public BacktestCommandLineRunner(BacktestService backtestService, BacktestExporter exporter,
-                                     AnalysisProperties analysisProperties,
+                                     AnalysisProperties analysisProperties, Venues venues,
                                      ConfigurableApplicationContext context) {
         this.backtestService = backtestService;
         this.exporter = exporter;
         this.analysisProperties = analysisProperties;
+        this.venues = venues;
         this.context = context;
     }
 
@@ -74,7 +78,7 @@ public class BacktestCommandLineRunner implements ApplicationRunner {
                     analysisProperties.toAnalysisConfig(timeframe),
                     args.containsOption("fetch"));
 
-            BacktestResult result = backtestService.run(request);
+            BacktestResult result = backtestService.run(venues.resolve(option(args, "exchange", null)), request);
             int minTouches = analysisProperties.getMinTouches();
 
             System.out.println();

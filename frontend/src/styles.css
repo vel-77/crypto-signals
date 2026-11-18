@@ -54,6 +54,38 @@ body {
 
 .tabs { display: flex; gap: 2px; margin-left: 8px; }
 
+/* Which market the whole page shows: futures or spot. A segmented control, like the tabs but
+   framed, since it changes everything below rather than one view. */
+.venue-switch {
+  display: flex;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.venue {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+}
+.venue:hover { color: var(--text); }
+.venue[aria-checked='true'] { background: var(--bg-hover); color: var(--text); font-weight: 600; }
+.venue:focus-visible { outline: 1px solid var(--signal); outline-offset: 1px; }
+.venue-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint); }
+.venue-dot.live { background: var(--support); }
+.venue-dot.down { background: var(--resistance); }
+.venue-only { font-size: 12px; }
+.chart-wait { padding: 24px 18px; font-size: 12px; }
+
 .tab {
   background: none;
   border: none;

@@ -3,9 +3,8 @@ package com.cryptosignals.backtest;
 import com.cryptosignals.analysis.LevelAnalysisEngineFactory;
 import com.cryptosignals.analysis.engine.LevelAnalysisEngine;
 import com.cryptosignals.analysis.model.AnalysisResult;
-import com.cryptosignals.config.ExchangeProperties;
+import com.cryptosignals.config.Venue;
 import com.cryptosignals.domain.Candle;
-import com.cryptosignals.exchange.ExchangeClient;
 import com.cryptosignals.persistence.AnalysisResultStore;
 import com.cryptosignals.persistence.entity.MarketEntity;
 import com.cryptosignals.persistence.jdbc.CandleJdbcRepository;
@@ -30,37 +29,31 @@ public class BacktestService {
 
     private final CandleJdbcRepository candles;
     private final AnalysisResultStore store;
-    private final ExchangeClient exchange;
-    private final ExchangeProperties exchangeProperties;
-    private final LevelAnalysisEngineFactory engineFactory;
 
-    public BacktestService(CandleJdbcRepository candles, AnalysisResultStore store,
-                           ExchangeClient exchange, ExchangeProperties exchangeProperties,
-                           LevelAnalysisEngineFactory engineFactory) {
+    public BacktestService(CandleJdbcRepository candles, AnalysisResultStore store) {
         this.candles = candles;
         this.store = store;
-        this.exchange = exchange;
-        this.exchangeProperties = exchangeProperties;
-        this.engineFactory = engineFactory;
     }
 
-    public BacktestResult run(BacktestRequest request) {
-        MarketEntity market = store.resolveMarket(exchangeProperties.getName(), request.market());
+    /** Backtests one coin and timeframe of one venue (spot, futures), over that venue's candles. */
+    public BacktestResult run(Venue venue, BacktestRequest request) {
+        MarketEntity market = store.resolveMarket(venue.name(), request.market());
 
         if (request.fetchMissing()) {
-            fetchMissing(market, request);
+            fetchMissing(venue, market, request);
         }
-        return analyse(market, request);
+        return analyse(venue.engineFactory(), market, request);
     }
 
-    private void fetchMissing(MarketEntity market, BacktestRequest request) {
+    private void fetchMissing(Venue venue, MarketEntity market, BacktestRequest request) {
         long have = candles.count(market.getId());
-        List<Candle> fetched = exchange.fetchCandles(request.market().symbol(),
+        List<Candle> fetched = venue.client().fetchCandles(request.market().symbol(),
                 request.market().timeframe(), request.from(), request.to(), 1_000_000);
         if (!fetched.isEmpty()) {
             candles.upsert(market.getId(), fetched);
         }
-        log.info("Backtest data for {}: had {}, fetched {}", request.market(), have, fetched.size());
+        log.info("Backtest data for {} on {}: had {}, fetched {}", request.market(), venue.name(),
+                have, fetched.size());
     }
 
     /**
@@ -72,7 +65,8 @@ public class BacktestService {
      * separate bean and therefore genuinely proxied — annotating this private method would look
      * like it did something and would not.
      */
-    private BacktestResult analyse(MarketEntity market, BacktestRequest request) {
+    private BacktestResult analyse(LevelAnalysisEngineFactory engineFactory, MarketEntity market,
+                                   BacktestRequest request) {
         long startedAt = System.currentTimeMillis();
         LevelAnalysisEngine engine = engineFactory.create(request.market(), request.config(), true);
 

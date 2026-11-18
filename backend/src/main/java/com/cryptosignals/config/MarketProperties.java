@@ -7,9 +7,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -102,9 +104,10 @@ public class MarketProperties {
      * Watches the most traded coins on top of the fixed symbols.
      *
      * <p>Volume is the average traded value per day over {@link #window}, in the quote asset. A coin
-     * joins when that reaches {@link #minDailyVolume}; at most {@link #maxSymbols} coins are watched
-     * in all, the highest volumes first. Stablecoins, tokenized stocks and the like are skipped:
-     * their prices do not form crypto support and resistance.
+     * joins when that reaches the market's minimum ({@link #minDailyVolumeFor}); at most
+     * {@link #maxSymbols} coins are watched in all, the highest volumes first. Stablecoins,
+     * tokenized stocks and the like are skipped: their prices do not form crypto support and
+     * resistance.
      */
     public static class VolumeSelection {
 
@@ -113,8 +116,19 @@ public class MarketProperties {
         /** Only pairs quoted in this asset are considered; volumes are in it too. */
         private String quoteAsset = "USDT";
 
-        /** Average traded value per day a coin needs to join, in the quote asset. */
+        /**
+         * Average traded value per day a coin needs to join, in the quote asset, on a market not
+         * given its own in {@link #minDailyVolumeByExchange}.
+         */
         private double minDailyVolume = 5_000_000;
+
+        /**
+         * The same per market, as {@code MARKET:volume} pairs, e.g.
+         * {@code BINANCE_FUTURES:300000000,BINANCE:50000000}. Markets not listed use
+         * {@link #minDailyVolume}.
+         */
+        private String minDailyVolumeByExchange = "";
+        private Map<String, Double> minDailyVolumes = Map.of();
 
         /**
          * How far back volume is averaged. Long enough that a quiet weekend or a one-day spike
@@ -123,7 +137,7 @@ public class MarketProperties {
         private Duration window = Duration.ofDays(7);
 
         /** Most coins watched in all, the fixed symbols included. 0 means no limit. */
-        private int maxSymbols = 50;
+        private int maxSymbols = 0;
 
         /**
          * A coin already watched keeps its place until its volume falls below this share, in
@@ -158,6 +172,39 @@ public class MarketProperties {
             }
             this.minDailyVolume = v;
         }
+        public String getMinDailyVolumeByExchange() { return minDailyVolumeByExchange; }
+        public void setMinDailyVolumeByExchange(String v) {
+            Map<String, Double> parsed = new LinkedHashMap<>();
+            if (v != null && !v.isBlank()) {
+                for (String pair : v.split(",")) {
+                    if (pair.isBlank()) {
+                        continue;
+                    }
+                    String[] parts = pair.trim().split(":");
+                    double volume;
+                    try {
+                        volume = parts.length == 2 ? Double.parseDouble(parts[1].trim().replace("_", "")) : -1;
+                    } catch (NumberFormatException ex) {
+                        volume = -1;
+                    }
+                    if (parts.length != 2 || parts[0].isBlank() || !(volume >= 0)) {
+                        throw new IllegalArgumentException("volume-selection.min-daily-volume-by-exchange: expected "
+                                + "'MARKET:volume' pairs such as 'BINANCE_FUTURES:300000000,BINANCE:50000000', got '"
+                                + pair.trim() + "'");
+                    }
+                    parsed.put(parts[0].trim().toUpperCase(Locale.ROOT), volume);
+                }
+            }
+            this.minDailyVolumeByExchange = v == null ? "" : v;
+            this.minDailyVolumes = Map.copyOf(parsed);
+        }
+
+        /** What a coin needs to join on this market. */
+        public double minDailyVolumeFor(String exchange) {
+            Double own = exchange == null ? null : minDailyVolumes.get(exchange.trim().toUpperCase(Locale.ROOT));
+            return own != null ? own : minDailyVolume;
+        }
+
         public Duration getWindow() { return window; }
         public void setWindow(Duration v) {
             if (v == null || v.toMinutes() < 1 || v.compareTo(Duration.ofDays(7)) > 0) {

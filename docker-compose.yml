@@ -50,16 +50,18 @@ services:
       # underscore (min-touches -> MIN_TOUCHES). Run-together names such as ..._MINTOUCHES are
       # silently ignored; EnvironmentBindingTest checks every name below.
 
-      # Where coins, volumes and candles come from: BINANCE_FUTURES (USDⓈ-M perpetuals) or BINANCE (spot)
-      CRYPTO_SIGNALS_EXCHANGE_NAME: ${EXCHANGE:-BINANCE_FUTURES}
+      # The markets to run, each with its own coins, candles, levels and signals:
+      # BINANCE_FUTURES (USDⓈ-M perpetuals) and / or BINANCE (spot). The first opens in the web page.
+      CRYPTO_SIGNALS_EXCHANGE_VENUES: ${EXCHANGES:-BINANCE_FUTURES,BINANCE}
 
       # Watch list and history depth
       CRYPTO_SIGNALS_MARKETS_SYMBOLS: ${SYMBOLS:-BTCUSDT,ETHUSDT}
       CRYPTO_SIGNALS_MARKETS_TIMEFRAMES: ${TIMEFRAMES:-15m,30m,1h}
       CRYPTO_SIGNALS_MARKETS_LOOKBACK: ${LOOKBACK:-30d}
       CRYPTO_SIGNALS_MARKETS_VOLUME_SELECTION_ENABLED: ${VOLUME_SELECTION:-true}
-      CRYPTO_SIGNALS_MARKETS_VOLUME_SELECTION_MIN_DAILY_VOLUME: ${MIN_DAILY_VOLUME:-5000000}
-      CRYPTO_SIGNALS_MARKETS_VOLUME_SELECTION_MAX_SYMBOLS: ${MAX_SYMBOLS:-50}
+      # Each market's own minimum average daily volume, in USDT
+      CRYPTO_SIGNALS_MARKETS_VOLUME_SELECTION_MIN_DAILY_VOLUME_BY_EXCHANGE: BINANCE_FUTURES:${FUTURES_MIN_DAILY_VOLUME:-300000000},BINANCE:${SPOT_MIN_DAILY_VOLUME:-50000000}
+      CRYPTO_SIGNALS_MARKETS_VOLUME_SELECTION_MAX_SYMBOLS: ${MAX_SYMBOLS:-0}
 
       # Detection rules (see docs/ALGORITHM.md before changing these)
       CRYPTO_SIGNALS_ANALYSIS_MIN_TOUCHES: ${MIN_TOUCHES:-3}

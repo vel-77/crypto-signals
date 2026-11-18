@@ -31,6 +31,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -76,6 +77,8 @@ public class BinanceExchangeClient implements ExchangeClient {
     private static final int FUTURES_MAX_KLINES = 1500;
     /** How long the futures symbol list, about 1 MB, is reused when checking symbols one by one. */
     private static final Duration LISTING_REUSE = Duration.ofMinutes(10);
+    /** How futures spell coins priced per 1000 or per million: 1000SHIBUSDT, 1000000MOGUSDT, 1MBABYDOGEUSDT. */
+    private static final List<String> MULTIPLIER_PREFIXES = List.of("1000000", "1000", "1M");
 
     /**
      * Symbols Binance accepts in a list query and in a stream name. A few meme coins are listed
@@ -239,10 +242,45 @@ public class BinanceExchangeClient implements ExchangeClient {
                 return symbols != null && symbols.isArray() && !symbols.isEmpty()
                         && "TRADING".equals(symbols.get(0).path("status").asText());
             } catch (ExchangeException ex) {
-                log.warn("Symbol {} is not tradable on {}: {}", key, market.label(), ex.getMessage());
+                if (ex.statusCode() == 400) {
+                    // Binance's answer for a symbol it does not list, e.g. a futures spelling.
+                    log.debug("{} does not list {}: {}", market.label(), key, ex.getMessage());
+                } else {
+                    log.warn("Symbol {} is not tradable on {}: {}", key, market.label(), ex.getMessage());
+                }
                 return false;
             }
         });
+    }
+
+    /**
+     * Futures price a few low-priced coins per 1000 or per million coins, under the multiplied
+     * name ({@code 1000SHIBUSDT}, {@code 1000000MOGUSDT}, {@code 1MBABYDOGEUSDT}); spot lists them
+     * under the plain one. A symbol given in either form is found in the other.
+     */
+    @Override
+    public Optional<String> listedSymbol(String symbol) {
+        String wanted = symbol.trim().toUpperCase(Locale.ROOT);
+        if (supportsSymbol(wanted)) {
+            return Optional.of(wanted);
+        }
+        List<String> candidates = new ArrayList<>();
+        for (String prefix : MULTIPLIER_PREFIXES) {
+            if (wanted.startsWith(prefix) && wanted.length() > prefix.length() + 4) {
+                candidates.add(wanted.substring(prefix.length()));
+            }
+        }
+        if (candidates.isEmpty()) {
+            for (String prefix : MULTIPLIER_PREFIXES) {
+                candidates.add(prefix + wanted);
+            }
+        }
+        for (String candidate : candidates) {
+            if (supportsSymbol(candidate)) {
+                return Optional.of(candidate);
+            }
+        }
+        return Optional.empty();
     }
 
     /** Futures' exchangeInfo always lists every symbol, so one fetch answers for all of them. */

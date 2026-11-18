@@ -5,6 +5,7 @@ import com.cryptosignals.backtest.BacktestRequest;
 import com.cryptosignals.backtest.BacktestResult;
 import com.cryptosignals.backtest.BacktestService;
 import com.cryptosignals.config.AnalysisProperties;
+import com.cryptosignals.config.Venues;
 import com.cryptosignals.domain.MarketKey;
 import com.cryptosignals.domain.Timeframe;
 import io.swagger.v3.oas.annotations.Operation;
@@ -29,12 +30,14 @@ public class BacktestController {
     private final BacktestService backtestService;
     private final BacktestExporter exporter;
     private final AnalysisProperties analysisProperties;
+    private final Venues venues;
 
     public BacktestController(BacktestService backtestService, BacktestExporter exporter,
-                              AnalysisProperties analysisProperties) {
+                              AnalysisProperties analysisProperties, Venues venues) {
         this.backtestService = backtestService;
         this.exporter = exporter;
         this.analysisProperties = analysisProperties;
+        this.venues = venues;
     }
 
     @PostMapping
@@ -42,6 +45,8 @@ public class BacktestController {
             description = "Runs the live detection engine over stored candles without writing any "
                     + "levels or signals. Returns JSON, CSV or a plain-text report.")
     public ResponseEntity<String> run(
+            @Parameter(description = "market: BINANCE_FUTURES or BINANCE; default the first one running")
+            @RequestParam(required = false) String exchange,
             @Parameter(required = true) @RequestParam String symbol,
             @Parameter(required = true) @RequestParam String timeframe,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
@@ -56,7 +61,7 @@ public class BacktestController {
                 from, to != null ? to : Instant.now(),
                 analysisProperties.toAnalysisConfig(tf), fetch);
 
-        BacktestResult result = backtestService.run(request);
+        BacktestResult result = backtestService.run(venues.resolve(exchange), request);
         int minTouches = analysisProperties.getMinTouches();
 
         return switch (format.toLowerCase()) {

@@ -2,12 +2,15 @@ package com.cryptosignals.notifications;
 
 import com.cryptosignals.analysis.model.TradingSignal;
 import com.cryptosignals.config.NotificationProperties;
+import com.cryptosignals.config.Venues;
 import com.cryptosignals.domain.MarketKey;
 import com.cryptosignals.domain.SignalStatus;
 import com.cryptosignals.domain.Timeframe;
 import com.cryptosignals.persistence.AnalysisResultStore;
+import com.cryptosignals.persistence.entity.MarketEntity;
 import com.cryptosignals.persistence.entity.SignalEntity;
 import com.cryptosignals.persistence.repository.LevelTouchRepository;
+import com.cryptosignals.persistence.repository.MarketRepository;
 import com.cryptosignals.persistence.repository.SignalRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,7 +19,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -45,37 +50,46 @@ public class NotificationService {
     private final SignalRepository signals;
     private final LevelTouchRepository touches;
     private final AnalysisResultStore store;
+    private final MarketRepository markets;
+    private final Venues venues;
 
     public NotificationService(List<Notifier> notifiers, SignalFormatter formatter,
                                NotificationProperties properties, SignalRepository signals,
-                               LevelTouchRepository touches, AnalysisResultStore store) {
+                               LevelTouchRepository touches, AnalysisResultStore store,
+                               MarketRepository markets, Venues venues) {
         this.notifiers = notifiers;
         this.formatter = formatter;
         this.properties = properties;
         this.signals = signals;
         this.touches = touches;
         this.store = store;
+        this.markets = markets;
+        this.venues = venues;
         log.info("Notification channels: {}", notifiers.stream()
                 .map(n -> n.name() + (n.isEnabled() ? "" : " (disabled)")).toList());
     }
 
-    /** Dispatches a freshly emitted signal. Never throws into the analysis path. */
-    public void dispatch(TradingSignal signal) {
+    /**
+     * Dispatches a freshly emitted signal. Never throws into the analysis path.
+     *
+     * @param exchange the market it was found on (BINANCE, BINANCE_FUTURES), named in the alert
+     */
+    public void dispatch(TradingSignal signal, String exchange) {
         try {
             if (!shouldNotify(signal)) {
                 log.debug("Suppressing signal {} ({})", signal.id(), suppressionReason(signal));
                 store.markNotified(UUID.fromString(signal.id()));
                 return;
             }
-            deliver(signal);
+            deliver(signal, exchange == null ? null : venues.labelOf(exchange));
         } catch (Exception ex) {
             log.error("Notification dispatch failed for signal {}; it stays queued for retry: {}",
                     signal.id(), ex.toString());
         }
     }
 
-    private void deliver(TradingSignal signal) {
-        String message = formatter.format(signal);
+    private void deliver(TradingSignal signal, String marketLabel) {
+        String message = formatter.format(signal, marketLabel);
         boolean allAccepted = true;
 
         for (Notifier notifier : notifiers) {
@@ -102,16 +116,22 @@ public class NotificationService {
     /**
      * Retries signals that were persisted but never delivered — after a Telegram outage, a network
      * partition, or a restart that happened between the insert and the send.
+     *
+     * <p>One run at a time: each market's startup calls this too, and two runs over the same
+     * pending signals would deliver them twice.
      */
     @Scheduled(fixedDelayString = "${crypto-signals.notifications.retry-interval:60s}")
-    public void retryPending() {
+    public synchronized void retryPending() {
         List<SignalEntity> pending = signals.findByNotifiedFalseOrderByDetectedAtAsc();
         if (pending.isEmpty()) {
             return;
         }
         log.info("Retrying delivery of {} pending signal(s)", pending.size());
+        Map<Long, String> exchanges = new HashMap<>();
         for (SignalEntity entity : pending) {
-            dispatch(toDomain(entity));
+            String exchange = exchanges.computeIfAbsent(entity.getMarketId(), id ->
+                    markets.findById(id).map(MarketEntity::getExchange).orElse(""));
+            dispatch(toDomain(entity), exchange.isEmpty() ? null : exchange);
         }
     }
 

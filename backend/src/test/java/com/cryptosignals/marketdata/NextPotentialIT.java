@@ -1,5 +1,6 @@
 package com.cryptosignals.marketdata;
 
+import com.cryptosignals.config.Venues;
 import com.cryptosignals.analysis.AnalysisConfig;
 import com.cryptosignals.analysis.LevelAnalysisEngineFactory;
 import com.cryptosignals.analysis.engine.LevelAnalysisEngine;
@@ -14,6 +15,7 @@ import com.cryptosignals.persistence.entity.SignalEntity;
 import com.cryptosignals.persistence.jdbc.CandleJdbcRepository;
 import com.cryptosignals.persistence.repository.SignalRepository;
 import com.cryptosignals.support.PostgresIntegrationTest;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,10 +32,22 @@ class NextPotentialIT extends PostgresIntegrationTest {
     private static final Timeframe TF = Timeframe.M5;
 
     @Autowired MarketAnalysisService analysisService;
+    @Autowired Venues venues;
     @Autowired CandleJdbcRepository candles;
     @Autowired SignalRepository signals;
     @Autowired JdbcTemplate jdbc;
     @Autowired AnalysisResultStore store;
+    @Autowired MarketDataBootstrap bootstrap;
+
+    /** Startup fills in unwatched markets too; it must be done before a test stores its own. */
+    @BeforeEach
+    void bootstrapDone() throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 30_000;
+        while (bootstrap.state() != MarketDataBootstrap.State.READY && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50);
+        }
+        assertThat(bootstrap.state()).isEqualTo(MarketDataBootstrap.State.READY);
+    }
 
     /**
      * The resistance example: peaks at 105k, 107k, 102k, 104k and 101.5k, then three touches of a
@@ -52,7 +66,7 @@ class NextPotentialIT extends PostgresIntegrationTest {
         MarketKey key = new MarketKey(symbol, TF);
         List<Candle> series = example();
 
-        MarketEngine engine = analysisService.initialise(key);
+        MarketEngine engine = analysisService.initialise(venues.primary(), key);
         candles.upsert(engine.market().getId(), series);
         analysisService.replayHistory(engine);
         return engine;
@@ -147,7 +161,7 @@ class NextPotentialIT extends PostgresIntegrationTest {
         assertThat(signalsOf(market.getId())).isNotEmpty()
                 .allSatisfy(s -> assertThat(s.getNextPotentialRule()).isNull());
 
-        analysisService.fillNextPotentialOfUnwatchedMarkets();
+        analysisService.fillNextPotentialOfUnwatchedMarkets(venues.primary());
 
         assertThat(signalsOf(market.getId())).allSatisfy(s ->
                 assertThat(s.getNextPotentialRule()).isNotNull());
