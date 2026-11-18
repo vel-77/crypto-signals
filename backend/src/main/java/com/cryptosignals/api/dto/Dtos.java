@@ -211,7 +211,8 @@ public final class Dtos {
     public record WatchedSymbolDto(String symbol, String source, BigDecimal dailyVolume, Instant selectedAt) {
     }
 
-    public record VolumeRuleDto(String quoteAsset, BigDecimal minDailyVolume, String window, int maxSymbols,
+    public record VolumeRuleDto(String quoteAsset, BigDecimal minDailyVolume, String window, int minSymbols,
+                                int maxSymbols,
                                 double keepPercent, double minPriceRangePercent, List<String> excludeTags,
                                 List<String> excludeAssets, String refreshInterval) {
     }

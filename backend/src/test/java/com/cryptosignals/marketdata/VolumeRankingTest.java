@@ -149,6 +149,54 @@ class VolumeRankingTest {
     }
 
     @Test
+    @DisplayName("too few coins over the minimum: the next most traded make up min-symbols, fixed ones included")
+    void fillsUpToMinimum() {
+        MarketProperties.VolumeSelection rules = rules();   // 5M a day
+        rules.setMinSymbols(4);
+        List<SymbolActivity> activity = List.of(coin("BTC", 900), coin("AAA", 50), coin("BBB", 4),
+                coin("CCC", 3), coin("DDD", 2), coin("EEE", 1));
+
+        assertThat(choose(activity, List.of("BTCUSDT"), Set.of(), rules))
+                .containsExactly("AAAUSDT", "BBBUSDT", "CCCUSDT");
+    }
+
+    @Test
+    @DisplayName("the minimum number never leaves out a coin over the minimum volume")
+    void minimumIsAFloorOnly() {
+        MarketProperties.VolumeSelection rules = rules();
+        rules.setMinSymbols(2);
+        List<SymbolActivity> activity = List.of(coin("AAA", 50), coin("BBB", 40), coin("CCC", 30), coin("DDD", 1));
+
+        assertThat(choose(activity, List.of(), Set.of(), rules)).containsExactly("AAAUSDT", "BBBUSDT", "CCCUSDT");
+    }
+
+    @Test
+    @DisplayName("filling up still skips stablecoins and the like, and stops at max-symbols")
+    void fillingRespectsExclusionsAndMaximum() {
+        MarketProperties.VolumeSelection rules = rules();
+        rules.setMinSymbols(3);
+        List<SymbolActivity> activity = List.of(coin("USDC", 4, "stablecoin"), coin("AAA", 3), coin("BBB", 2),
+                coin("CCC", 1));
+
+        assertThat(choose(activity, List.of(), Set.of(), rules)).containsExactly("AAAUSDT", "BBBUSDT", "CCCUSDT");
+        rules.setMaxSymbols(2);
+        assertThat(choose(activity, List.of(), Set.of(), rules)).containsExactly("AAAUSDT", "BBBUSDT");
+    }
+
+    @Test
+    @DisplayName("among the coins filling up, a watched one only gives way to one with clearly more volume")
+    void fillingKeepsWatchedCoins() {
+        MarketProperties.VolumeSelection rules = rules();
+        rules.setMinSymbols(1);
+        Set<String> watched = Set.of("AAAUSDT");
+
+        assertThat(choose(List.of(coin("AAA", 1), coin("BBB", 1.4)), List.of(), watched, rules))
+                .containsExactly("AAAUSDT");
+        assertThat(choose(List.of(coin("AAA", 1), coin("BBB", 1.5)), List.of(), watched, rules))
+                .containsExactly("BBBUSDT");
+    }
+
+    @Test
     @DisplayName("ties are broken by symbol, so the same input always gives the same list")
     void deterministic() {
         MarketProperties.VolumeSelection rules = rules();
@@ -168,6 +216,7 @@ class VolumeRankingTest {
         assertThatThrownBy(() -> rules.setKeepPercent(0)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> rules.setKeepPercent(120)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> rules.setMaxSymbols(-1)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> rules.setMinSymbols(-1)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> rules.setMinDailyVolume(-5)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> rules.setMinDailyVolumeByExchange("BINANCE=5"))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("MARKET:volume");

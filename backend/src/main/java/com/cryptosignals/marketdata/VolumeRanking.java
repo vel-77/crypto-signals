@@ -28,6 +28,11 @@ import java.util.Set;
  *       more than {@code 100 / keep-percent} times its volume. Both come from ranking a watched
  *       coin as if its volume were {@code volume * 100 / keep-percent}.</li>
  *   <li>The highest ranked coins fill the places left by the fixed symbols.</li>
+ *   <li>If fewer than {@code min-symbols} coins are watched that way, fixed ones included, the
+ *       next highest ranked coins make up the number, below the minimum volume. The keep-percent
+ *       allowance works the same there: a watched coin only gives way to one trading more than
+ *       {@code 100 / keep-percent} times as much.</li>
+ *   <li>{@code max-symbols}, when set, caps the total either way.</li>
  * </ol>
  *
  * <p>Pure: the same activity and the same current list always give the same answer.
@@ -71,7 +76,7 @@ public final class VolumeRanking {
 
         record Scored(String symbol, double dailyVolume, double score) {
         }
-        List<Scored> qualifying = new ArrayList<>();
+        List<Scored> eligible = new ArrayList<>();
         for (Map.Entry<String, SymbolActivity> entry : bySymbol.entrySet()) {
             String symbol = entry.getKey();
             SymbolActivity a = entry.getValue();
@@ -83,19 +88,20 @@ public final class VolumeRanking {
             }
             double daily = a.quoteVolume() / days;
             double score = watched.contains(symbol) ? daily * keepFactor : daily;
-            if (score >= minDailyVolume) {
-                qualifying.add(new Scored(symbol, daily, score));
-            }
+            eligible.add(new Scored(symbol, daily, score));
         }
 
-        qualifying.sort(Comparator.comparingDouble(Scored::score).reversed()
+        eligible.sort(Comparator.comparingDouble(Scored::score).reversed()
                 .thenComparing(Scored::symbol));
+        // Ranked by score, the coins clearing the minimum come first.
+        int clearing = (int) eligible.stream().filter(s -> s.score() >= minDailyVolume).count();
+        int wanted = Math.max(clearing, rules.getMinSymbols() - fixed.size());
         int places = rules.getMaxSymbols() == 0
                 ? Integer.MAX_VALUE
                 : Math.max(0, rules.getMaxSymbols() - fixed.size());
 
         List<Ranked> chosen = new ArrayList<>();
-        for (Scored s : qualifying.subList(0, Math.min(places, qualifying.size()))) {
+        for (Scored s : eligible.subList(0, Math.min(Math.min(wanted, places), eligible.size()))) {
             chosen.add(new Ranked(s.symbol(), s.dailyVolume()));
         }
         chosen.sort(Comparator.comparingDouble(Ranked::dailyVolume).reversed()

@@ -250,13 +250,14 @@ Every coin is analysed on every configured timeframe.
   "exchangeLabel": "Binance USDⓈ-M futures",
   "mode": "VOLUME",
   "source": "EXCHANGE",
-  "count": 43,
+  "count": 100,
   "symbols": [
     { "symbol": "BTCUSDT",  "source": "FIXED",  "dailyVolume": 1166910000 },
     { "symbol": "PEPEUSDT", "source": "VOLUME", "dailyVolume": 54540000,
       "selectedAt": "2026-11-10T07:54:26Z" }
   ],
-  "rule": { "quoteAsset": "USDT", "minDailyVolume": 300000000, "window": "PT168H", "maxSymbols": 0,
+  "rule": { "quoteAsset": "USDT", "minDailyVolume": 300000000, "window": "PT168H", "minSymbols": 100,
+            "maxSymbols": 0,
             "keepPercent": 70.0, "minPriceRangePercent": 1.0,
             "excludeTags": ["stablecoin", "bStocks", "tCommodities"],
             "excludeAssets": ["EUR", "WBTC", "WBETH", "BNSOL"], "refreshInterval": "PT24H" },
@@ -276,8 +277,9 @@ Every coin is analysed on every configured timeframe.
 | `lastError` | Why the last refresh failed, if it did. The list is then kept as it was and retried after 15 minutes. |
 
 How coins are chosen: those averaging at least `minDailyVolume` a day over `window` on this market
-(each market has its own), highest first, up to `maxSymbols` coins in all (fixed ones included;
-0 means no limit). Coins Binance tags as stablecoins, tokenized
+(each market has its own), highest first. If that makes fewer than `minSymbols` coins in all, the
+next most traded coins fill up to that many. `maxSymbols` caps the total. Both count the fixed
+coins; 0 means no minimum or no limit. Coins Binance tags as stablecoins, tokenized
 stocks (`bStocks`) or commodities (gold), the base assets in `excludeAssets`, and coins whose price
 moved less than `minPriceRangePercent` over the window are skipped. A coin already on the list stays
 until its volume falls below `keepPercent` of the threshold, so one near the line does not come and

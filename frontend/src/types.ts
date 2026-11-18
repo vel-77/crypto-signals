@@ -138,6 +138,7 @@ export interface VolumeRule {
   quoteAsset: string
   minDailyVolume: number
   window: string
+  minSymbols: number
   maxSymbols: number
   keepPercent: number
   minPriceRangePercent: number

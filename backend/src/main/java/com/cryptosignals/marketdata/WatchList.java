@@ -159,7 +159,9 @@ public class WatchList {
                             + "added {}, removed {}",
                     venue.label(), fixed.size() + next.size(), fixed.size(), next.size(),
                     String.format(Locale.ROOT, "%,.0f", minDailyVolume()), rules.getQuoteAsset(),
-                    days(rules), rules.getMaxSymbols() == 0 ? "" : ", at most " + rules.getMaxSymbols(),
+                    days(rules),
+                    (rules.getMinSymbols() == 0 ? "" : ", at least " + rules.getMinSymbols())
+                            + (rules.getMaxSymbols() == 0 ? "" : ", at most " + rules.getMaxSymbols()),
                     added.isEmpty() ? "none" : added, removed.isEmpty() ? "none" : removed);
             return Optional.of(new Change(added, removed));
         } catch (RuntimeException ex) {

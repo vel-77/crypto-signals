@@ -52,7 +52,8 @@ public class WatchListController {
                 .toList();
         VolumeRuleDto rule = rules.isEnabled()
                 ? new VolumeRuleDto(rules.getQuoteAsset(), BigDecimal.valueOf(watchList.minDailyVolume()),
-                        rules.getWindow().toString(), rules.getMaxSymbols(), rules.getKeepPercent(),
+                        rules.getWindow().toString(), rules.getMinSymbols(), rules.getMaxSymbols(),
+                        rules.getKeepPercent(),
                         rules.getMinPriceRangePercent(), List.copyOf(rules.getExcludeTags()),
                         List.copyOf(rules.getExcludeAssets()), rules.getRefreshInterval().toString())
                 : null;

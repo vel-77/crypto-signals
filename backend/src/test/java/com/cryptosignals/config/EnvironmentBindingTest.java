@@ -42,6 +42,7 @@ class EnvironmentBindingTest {
         SAMPLES.put("CRYPTO_SIGNALS_MARKETS_VOLUME_SELECTION_MIN_DAILY_VOLUME", "123");
         SAMPLES.put("CRYPTO_SIGNALS_MARKETS_VOLUME_SELECTION_MIN_DAILY_VOLUME_BY_EXCHANGE",
                 "BINANCE_FUTURES:300000000,binance:50_000_000");
+        SAMPLES.put("CRYPTO_SIGNALS_MARKETS_VOLUME_SELECTION_MIN_SYMBOLS", "5");
         SAMPLES.put("CRYPTO_SIGNALS_MARKETS_VOLUME_SELECTION_MAX_SYMBOLS", "7");
         SAMPLES.put("CRYPTO_SIGNALS_ANALYSIS_MIN_TOUCHES", "4");
         SAMPLES.put("CRYPTO_SIGNALS_ANALYSIS_TOUCH_TOLERANCE_PERCENT", "0.12");
@@ -100,6 +101,7 @@ class EnvironmentBindingTest {
         assertThat(markets.getVolumeSelection().minDailyVolumeFor("BINANCE_FUTURES")).isEqualTo(300_000_000);
         assertThat(markets.getVolumeSelection().minDailyVolumeFor("BINANCE")).isEqualTo(50_000_000);
         assertThat(markets.getVolumeSelection().minDailyVolumeFor("OTHER")).isEqualTo(123);
+        assertThat(markets.getVolumeSelection().getMinSymbols()).isEqualTo(5);
         assertThat(markets.getVolumeSelection().getMaxSymbols()).isEqualTo(7);
 
         AnalysisProperties analysis = binder.bindOrCreate("crypto-signals.analysis", AnalysisProperties.class);

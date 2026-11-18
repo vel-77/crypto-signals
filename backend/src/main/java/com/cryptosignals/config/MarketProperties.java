@@ -104,8 +104,9 @@ public class MarketProperties {
      * Watches the most traded coins on top of the fixed symbols.
      *
      * <p>Volume is the average traded value per day over {@link #window}, in the quote asset. A coin
-     * joins when that reaches the market's minimum ({@link #minDailyVolumeFor}); at most
-     * {@link #maxSymbols} coins are watched in all, the highest volumes first. Stablecoins,
+     * joins when that reaches the market's minimum ({@link #minDailyVolumeFor}). If that makes
+     * fewer than {@link #minSymbols} coins in all, the next most traded coins fill up the list;
+     * at most {@link #maxSymbols} coins are watched in all, the highest volumes first. Stablecoins,
      * tokenized stocks and the like are skipped: their prices do not form crypto support and
      * resistance.
      */
@@ -135,6 +136,12 @@ public class MarketProperties {
          * does not change the list. Binance reports at most 7 days.
          */
         private Duration window = Duration.ofDays(7);
+
+        /**
+         * Fewest coins watched in all, the fixed symbols included: when fewer clear the minimum
+         * volume, the next most traded coins make up the number. 0 means no minimum.
+         */
+        private int minSymbols = 0;
 
         /** Most coins watched in all, the fixed symbols included. 0 means no limit. */
         private int maxSymbols = 0;
@@ -212,6 +219,13 @@ public class MarketProperties {
                         "volume-selection.window must be between 1 minute and 7 days, got " + v);
             }
             this.window = v;
+        }
+        public int getMinSymbols() { return minSymbols; }
+        public void setMinSymbols(int v) {
+            if (v < 0) {
+                throw new IllegalArgumentException("volume-selection.min-symbols must be >= 0, got " + v);
+            }
+            this.minSymbols = v;
         }
         public int getMaxSymbols() { return maxSymbols; }
         public void setMaxSymbols(int v) {

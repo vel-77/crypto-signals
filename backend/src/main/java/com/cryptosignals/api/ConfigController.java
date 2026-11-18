@@ -77,6 +77,7 @@ public class ConfigController {
             selectionInfo.put("quoteAsset", selection.getQuoteAsset());
             selectionInfo.put("minDailyVolume", watchList.minDailyVolume());
             selectionInfo.put("window", selection.getWindow().toString());
+            selectionInfo.put("minSymbols", selection.getMinSymbols());
             selectionInfo.put("maxSymbols", selection.getMaxSymbols());
             selectionInfo.put("keepPercent", selection.getKeepPercent());
             selectionInfo.put("minPriceRangePercent", selection.getMinPriceRangePercent());
