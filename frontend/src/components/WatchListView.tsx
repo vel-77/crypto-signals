@@ -33,10 +33,12 @@ interface Props {
 export function WatchListView({ list, timeZone }: Props) {
   if (!list) return null
   const rule = list.rule
+  const inAll = rule && rule.markets > 1 ? 'coins across all markets together' : 'coins in all'
   return (
     <section className="watchlist">
       <div className="section-title" style={{ padding: '0 0 8px' }}>
-        Watch list — {list.count} coin{list.count === 1 ? '' : 's'}, each on every timeframe
+        Watch list — {list.count} coin{list.count === 1 ? '' : 's'}
+        {list.countAllMarkets > list.count && <> ({list.countAllMarkets} across all markets)</>}, each on every timeframe
       </div>
       <p className="watchlist-rule">
         Coins, volumes and prices all come from <b>{list.exchangeLabel}</b>.
@@ -47,10 +49,11 @@ export function WatchListView({ list, timeZone }: Props) {
           The fixed coins are always watched. On top of them come the most traded other coins: those
           averaging at least <b>{money(rule.minDailyVolume)}</b> a day over the last <b>{span(rule.window)}</b>
           {rule.minSymbols > 0 && (
-            <>; if that makes fewer than <b>{rule.minSymbols}</b> coins in all, the next most traded fill up to {rule.minSymbols}</>
+            <>; if that makes fewer than <b>{rule.minSymbols}</b> {inAll}, the coins nearest
+              {rule.markets > 1 ? ' their market\'s ' : ' that '}minimum fill up to {rule.minSymbols}</>
           )}
           {rule.maxSymbols > 0
-            ? <>{rule.minSymbols > 0 ? '; ' : ', '}highest first, up to <b>{rule.maxSymbols}</b> coins in all.</>
+            ? <>{rule.minSymbols > 0 ? '; ' : ', '}highest first, up to <b>{rule.maxSymbols}</b> {inAll}.</>
             : rule.minSymbols > 0 ? '.' : <>, however many there are.</>}
           Stablecoins, tokenized stocks and gold are skipped. A coin on the list stays until its volume
           falls below {rule.keepPercent}% of that threshold. Checked every {span(rule.refreshInterval)}

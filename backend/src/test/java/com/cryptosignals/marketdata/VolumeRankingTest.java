@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -246,5 +247,89 @@ class VolumeRankingTest {
 
         rules.setMinDailyVolumeByExchange("");
         assertThat(rules.minDailyVolumeFor("BINANCE_FUTURES")).isEqualTo(5 * M);
+    }
+
+    private static Map<String, List<String>> across(MarketProperties.VolumeSelection rules,
+                                                    VolumeRanking.Market... markets) {
+        Map<String, List<Ranked>> chosen = VolumeRanking.chooseAcross(List.of(markets), rules);
+        java.util.LinkedHashMap<String, List<String>> out = new java.util.LinkedHashMap<>();
+        chosen.forEach((market, ranked) -> out.put(market, symbols(ranked)));
+        return out;
+    }
+
+    @Test
+    @DisplayName("across markets, the fewest coins counts them together and fills up nearest each market's own minimum")
+    void minimumAcrossMarkets() {
+        MarketProperties.VolumeSelection rules = rules();
+        rules.setMinSymbols(7);
+        // AAA clears both minimums. Below them: BBB at 80% of futures', DDD at 70% and FFF at 40% of
+        // spot's, CCC at 30% of futures', EEE at 20% of spot's.
+        VolumeRanking.Market futures = new VolumeRanking.Market("FUTURES",
+                List.of(coin("BTC", 900), coin("AAA", 400), coin("BBB", 240), coin("CCC", 90)),
+                List.of("BTCUSDT"), Set.of(), 300 * M);
+        VolumeRanking.Market spot = new VolumeRanking.Market("SPOT",
+                List.of(coin("BTC", 150), coin("AAA", 60), coin("DDD", 35), coin("EEE", 10), coin("FFF", 20)),
+                List.of("BTCUSDT"), Set.of(), 50 * M);
+
+        // BTC twice and AAA twice make 4; BBB, DDD and FFF make 7, though CCC trades more than DDD.
+        assertThat(across(rules, futures, spot)).containsExactly(
+                Map.entry("FUTURES", List.of("AAAUSDT", "BBBUSDT")),
+                Map.entry("SPOT", List.of("AAAUSDT", "DDDUSDT", "FFFUSDT")));
+
+        // Without a minimum, each market takes only what clears its own.
+        rules.setMinSymbols(0);
+        assertThat(across(rules, futures, spot)).containsExactly(
+                Map.entry("FUTURES", List.of("AAAUSDT")),
+                Map.entry("SPOT", List.of("AAAUSDT")));
+    }
+
+    @Test
+    @DisplayName("across markets, a watched coin keeps its allowance against coins of the other market")
+    void allowanceAcrossMarkets() {
+        MarketProperties.VolumeSelection rules = rules();
+        rules.setMinSymbols(1);
+        // One place: a new 80% coin on futures against a watched 60% one on spot, which counts as
+        // 60 / 0.7 = 86%.
+        VolumeRanking.Market futures = new VolumeRanking.Market("FUTURES",
+                List.of(coin("BBB", 240)), List.of(), Set.of(), 300 * M);
+        VolumeRanking.Market spot = new VolumeRanking.Market("SPOT",
+                List.of(coin("DDD", 30)), List.of(), Set.of("DDDUSDT"), 50 * M);
+
+        assertThat(across(rules, futures, spot)).containsExactly(
+                Map.entry("FUTURES", List.of()),
+                Map.entry("SPOT", List.of("DDDUSDT")));
+    }
+
+    @Test
+    @DisplayName("across markets, the most coins counts them together and keeps the coins nearest their minimum")
+    void maximumAcrossMarkets() {
+        MarketProperties.VolumeSelection rules = rules();
+        rules.setMaxSymbols(4);
+        // Both fixed BTCs count, which leaves 2 places. Of the coins clearing, spot's GGG (130% of
+        // its minimum) and AAA (120%) beat futures' AAA (110%), though that trades far more.
+        VolumeRanking.Market futures = new VolumeRanking.Market("FUTURES",
+                List.of(coin("AAA", 330)), List.of("BTCUSDT"), Set.of(), 300 * M);
+        VolumeRanking.Market spot = new VolumeRanking.Market("SPOT",
+                List.of(coin("AAA", 60), coin("GGG", 65)), List.of("BTCUSDT"), Set.of(), 50 * M);
+
+        assertThat(across(rules, futures, spot)).containsExactly(
+                Map.entry("FUTURES", List.of()),
+                Map.entry("SPOT", List.of("GGGUSDT", "AAAUSDT")));
+    }
+
+    @Test
+    @DisplayName("a market whose volumes could not be read counts as it is towards the others' minimum")
+    void unreadMarketCountsAsItIs() {
+        MarketProperties.VolumeSelection rules = rules();
+        rules.setMinSymbols(5);
+        // Spot could not be asked: its 3 current coins count, none ranked; futures fills the rest.
+        VolumeRanking.Market futures = new VolumeRanking.Market("FUTURES",
+                List.of(coin("AAA", 100), coin("BBB", 90), coin("CCC", 80)), List.of(), Set.of(), 300 * M);
+        VolumeRanking.Market spot = new VolumeRanking.Market("SPOT",
+                List.of(), List.of("BTCUSDT", "XXXUSDT", "YYYUSDT"), Set.of(), 50 * M);
+
+        assertThat(across(rules, futures, spot)).containsExactly(
+                Map.entry("FUTURES", List.of("AAAUSDT", "BBBUSDT")),
+                Map.entry("SPOT", List.of()));
     }
 }

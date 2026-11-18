@@ -53,13 +53,14 @@ public class WatchListController {
         VolumeRuleDto rule = rules.isEnabled()
                 ? new VolumeRuleDto(rules.getQuoteAsset(), BigDecimal.valueOf(watchList.minDailyVolume()),
                         rules.getWindow().toString(), rules.getMinSymbols(), rules.getMaxSymbols(),
-                        rules.getKeepPercent(),
+                        watchLists.all().size(), rules.getKeepPercent(),
                         rules.getMinPriceRangePercent(), List.copyOf(rules.getExcludeTags()),
                         List.copyOf(rules.getExcludeAssets()), rules.getRefreshInterval().toString())
                 : null;
         return new WatchListDto(venue.name(), venue.label(),
                 rules.isEnabled() ? "VOLUME" : "FIXED", watchList.source().name(),
-                symbols.size(), symbols, rule, watchList.refreshedAt(), watchList.nextAttemptAt(),
+                symbols.size(), watchLists.all().stream().mapToInt(list -> list.symbols().size()).sum(),
+                symbols, rule, watchList.refreshedAt(), watchList.nextAttemptAt(),
                 watchList.lastError());
     }
 }

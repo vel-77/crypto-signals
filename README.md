@@ -122,7 +122,7 @@ crypto-signals:
       enabled: false
       min-daily-volume: 5000000   # USDT a day, averaged over the last 7 days ...
       min-daily-volume-by-exchange: ""   # ... or per market, e.g. BINANCE_FUTURES:300000000,BINANCE:50000000
-      min-symbols: 0              # at least this many coins per market (docker-compose: 100)
+      min-symbols: 0              # at least this many coins, all markets together (docker-compose: 100)
       max-symbols: 0              # at most this many; both include the fixed ones; 0 = none
       keep-percent: 70            # a watched coin stays until it falls below 70% of the threshold
     timeframes: [15m, 30m, 1h]    # each coin x timeframe is an independent analysis
@@ -168,16 +168,18 @@ either spelling is found on both markets.
 market adds every other USDT coin averaging at least its own minimum over the last 7 days:
 `FUTURES_MIN_DAILY_VOLUME` (300M USDT a day by default) on futures, `SPOT_MIN_DAILY_VOLUME` (50M)
 on spot, since futures trade several times what spot does. `MIN_SYMBOLS` (100 by default) is the
-fewest coins a market watches: when fewer clear its minimum, the next most traded coins fill up to
-that many, so with the default minimums each market watches its 100 most traded coins, the fixed
-ones included. `MAX_SYMBOLS` caps the coins per market, highest volume first; 0 means no cap. Stablecoins, tokenized stocks, gold,
+fewest coins watched across all markets together, the fixed ones counted once per market (BTC on
+futures and BTC on spot are two). When fewer clear their market's minimum, the coins nearest it fill
+up to that many, on whichever market: a futures coin at 40% of the futures minimum ranks with a spot
+coin at 40% of the spot minimum. With the default minimums that is about 60 coins on futures and
+40 on spot. `MAX_SYMBOLS` caps the coins across all markets the same way; 0 means no cap. Stablecoins, tokenized stocks, gold,
 fiat and wrapped coins are skipped (Binance's own tags say which); on futures only perpetual
 contracts on crypto coins count, not the stock, commodity, index or pre-market ones, and a coin's
 7-day volume is added up from its hourly candles, since futures have no 7-day ticker. The lists are
 checked daily while running, so new coins are started and fading ones stopped without a restart; a
 dropped coin's open levels are marked `EXPIRED`, its history stays. `GET /api/watchlist` and the
 config tab show each coin and why it is there. Each coin adds three analyses (one per timeframe) of
-memory and start-up time; 100 coins on each of two markets is about 600 analyses.
+memory and start-up time; 100 coins across two markets is about 300 analyses.
 
 `GET /api/config` returns exactly what the running engine is using, including a fingerprint that
 every stored level and signal is tagged with. Secrets are never included.
@@ -294,7 +296,7 @@ implementation of one method.
 
 ```bash
 cd backend
-mvn test                                        # 204 unit tests, no Docker needed
+mvn test                                        # 212 unit tests, no Docker needed
 mvn verify                                      # + 31 integration tests (real PostgreSQL)
 mvn test -Dgroups=external -Dtest.excluded.groups=   # + 5 live Binance API tests
 ```

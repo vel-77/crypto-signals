@@ -193,11 +193,12 @@ public final class Dtos {
      * @param source      where the current list came from: FIXED, STORED (loaded at startup, the
      *                    exchange not asked yet) or EXCHANGE
      * @param symbols     fixed symbols first, in configured order, then the chosen ones by volume
+     * @param countAllMarkets coins watched on all markets together, this one included
      * @param rule        the selection settings; absent in FIXED mode
      * @param lastError   why the last refresh failed; absent after a successful one
      */
     public record WatchListDto(String exchange, String exchangeLabel, String mode, String source, int count,
-                               List<WatchedSymbolDto> symbols,
+                               int countAllMarkets, List<WatchedSymbolDto> symbols,
                                VolumeRuleDto rule, Instant refreshedAt, Instant nextRefreshAt,
                                String lastError) {
     }
@@ -211,8 +212,13 @@ public final class Dtos {
     public record WatchedSymbolDto(String symbol, String source, BigDecimal dailyVolume, Instant selectedAt) {
     }
 
+    /**
+     * @param minSymbols fewest coins across all {@code markets} together, fixed ones included
+     * @param maxSymbols most coins across all {@code markets} together; 0 means no limit
+     * @param markets    how many markets the two count together
+     */
     public record VolumeRuleDto(String quoteAsset, BigDecimal minDailyVolume, String window, int minSymbols,
-                                int maxSymbols,
+                                int maxSymbols, int markets,
                                 double keepPercent, double minPriceRangePercent, List<String> excludeTags,
                                 List<String> excludeAssets, String refreshInterval) {
     }

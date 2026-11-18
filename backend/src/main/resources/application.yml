@@ -81,9 +81,10 @@ crypto-signals:
       # this); a market not listed uses min-daily-volume.
       min-daily-volume-by-exchange: ""
       window: 7d                    # volume is averaged over this; Binance reports at most 7d
-      min-symbols: 0                # fewest coins per market, fixed symbols included: the next most
-                                    # traded fill up when too few clear the minimum; 0 = no minimum
-      max-symbols: 0                # most coins per market, fixed symbols included; 0 = no limit
+      min-symbols: 0                # fewest coins across all markets together, fixed symbols once per
+                                    # market: when too few clear their market's minimum, the coins
+                                    # nearest it fill up, on whichever market; 0 = no minimum
+      max-symbols: 0                # most coins across all markets together; 0 = no limit
       keep-percent: 70              # a watched coin stays until it falls below 70% of what joining takes
       min-price-range-percent: 1.0  # skip coins that moved less than this over the window
       exclude-tags: [stablecoin, bStocks, tCommodities]   # Binance's tags: stablecoins, stocks, gold

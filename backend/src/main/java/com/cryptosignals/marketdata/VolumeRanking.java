@@ -14,7 +14,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Chooses the coins to watch, on top of the fixed symbols, from the exchange's trading activity.
+ * Chooses the coins to watch, on top of the fixed symbols, from the exchange's trading activity:
+ * on one market, or on several at once ({@link #chooseAcross}).
  *
  * <p>The rule, in order:
  * <ol>
@@ -35,12 +36,31 @@ import java.util.Set;
  *   <li>{@code max-symbols}, when set, caps the total either way.</li>
  * </ol>
  *
+ * <p>With several markets, {@code min-symbols} and {@code max-symbols} count the coins of all of
+ * them together, and each market's fixed symbols count once per market. Each market keeps the
+ * coins clearing its own minimum. Coins below it compare by how close they come to their own
+ * market's minimum: a futures coin at 40% of a 300M minimum ranks with a spot coin at 40% of a
+ * 50M one, whatever their volumes.
+ *
  * <p>Pure: the same activity and the same current list always give the same answer.
  */
 public final class VolumeRanking {
 
     /** One chosen coin and its average traded value per day. */
     public record Ranked(String symbol, double dailyVolume) {
+    }
+
+    /**
+     * One market's part in a choice across markets.
+     *
+     * @param name           tells the markets apart in the answer
+     * @param activity       every symbol the market trades against the quote asset
+     * @param fixedSymbols   always watched; counted, never ranked
+     * @param watched        the coins chosen last time, which get the keep-percent allowance
+     * @param minDailyVolume what a coin needs to join on this market
+     */
+    public record Market(String name, Collection<SymbolActivity> activity, Collection<String> fixedSymbols,
+                         Set<String> watched, double minDailyVolume) {
     }
 
     private VolumeRanking() {
@@ -63,49 +83,73 @@ public final class VolumeRanking {
     public static List<Ranked> choose(Collection<SymbolActivity> activity, Collection<String> fixedSymbols,
                                       Set<String> watched, MarketProperties.VolumeSelection rules,
                                       double minDailyVolume) {
-        Set<String> fixed = upper(fixedSymbols);
+        Market market = new Market("", activity, fixedSymbols, watched, minDailyVolume);
+        return chooseAcross(List.of(market), rules).get("");
+    }
+
+    /**
+     * Chooses on several markets at once, with {@code min-symbols} and {@code max-symbols}
+     * counting all of them together.
+     *
+     * @return each market's chosen coins, by market name in the given order, highest volume first
+     */
+    public static Map<String, List<Ranked>> chooseAcross(List<Market> markets, MarketProperties.VolumeSelection rules) {
         Set<String> excludedAssets = upper(rules.getExcludeAssets());
         Set<String> excludedTags = lower(rules.getExcludeTags());
         double days = rules.windowDays();
         double keepFactor = 100.0 / rules.getKeepPercent();
 
-        Map<String, SymbolActivity> bySymbol = new LinkedHashMap<>();
-        for (SymbolActivity a : activity) {
-            bySymbol.putIfAbsent(a.symbol().toUpperCase(Locale.ROOT), a);
-        }
-
-        record Scored(String symbol, double dailyVolume, double score) {
+        // nearness: the score as a share of the market's own minimum, which ranks coins of
+        // markets with different minimums against each other.
+        record Scored(String market, String symbol, double dailyVolume, double score, boolean clears,
+                      double nearness) {
         }
         List<Scored> eligible = new ArrayList<>();
-        for (Map.Entry<String, SymbolActivity> entry : bySymbol.entrySet()) {
-            String symbol = entry.getKey();
-            SymbolActivity a = entry.getValue();
-            if (fixed.contains(symbol)
-                    || excludedAssets.contains(a.baseAsset().toUpperCase(Locale.ROOT))
-                    || a.tags().stream().anyMatch(tag -> excludedTags.contains(tag.toLowerCase(Locale.ROOT)))
-                    || a.priceRangePercent() < rules.getMinPriceRangePercent()) {
-                continue;
+        int fixedCount = 0;
+        for (Market market : markets) {
+            Set<String> fixed = upper(market.fixedSymbols());
+            fixedCount += fixed.size();
+            double minDailyVolume = market.minDailyVolume();
+
+            Map<String, SymbolActivity> bySymbol = new LinkedHashMap<>();
+            for (SymbolActivity a : market.activity()) {
+                bySymbol.putIfAbsent(a.symbol().toUpperCase(Locale.ROOT), a);
             }
-            double daily = a.quoteVolume() / days;
-            double score = watched.contains(symbol) ? daily * keepFactor : daily;
-            eligible.add(new Scored(symbol, daily, score));
+            for (Map.Entry<String, SymbolActivity> entry : bySymbol.entrySet()) {
+                String symbol = entry.getKey();
+                SymbolActivity a = entry.getValue();
+                if (fixed.contains(symbol)
+                        || excludedAssets.contains(a.baseAsset().toUpperCase(Locale.ROOT))
+                        || a.tags().stream().anyMatch(tag -> excludedTags.contains(tag.toLowerCase(Locale.ROOT)))
+                        || a.priceRangePercent() < rules.getMinPriceRangePercent()) {
+                    continue;
+                }
+                double daily = a.quoteVolume() / days;
+                double score = market.watched().contains(symbol) ? daily * keepFactor : daily;
+                double nearness = minDailyVolume > 0 ? score / minDailyVolume : Double.POSITIVE_INFINITY;
+                eligible.add(new Scored(market.name(), symbol, daily, score, score >= minDailyVolume, nearness));
+            }
         }
 
-        eligible.sort(Comparator.comparingDouble(Scored::score).reversed()
+        // The coins clearing their market's minimum come first, then the nearest to it.
+        eligible.sort(Comparator.comparing(Scored::clears).reversed()
+                .thenComparing(Comparator.comparingDouble(Scored::nearness).reversed())
+                .thenComparing(Comparator.comparingDouble(Scored::score).reversed())
+                .thenComparing(Scored::market)
                 .thenComparing(Scored::symbol));
-        // Ranked by score, the coins clearing the minimum come first.
-        int clearing = (int) eligible.stream().filter(s -> s.score() >= minDailyVolume).count();
-        int wanted = Math.max(clearing, rules.getMinSymbols() - fixed.size());
+        int clearing = (int) eligible.stream().filter(Scored::clears).count();
+        int wanted = Math.max(clearing, rules.getMinSymbols() - fixedCount);
         int places = rules.getMaxSymbols() == 0
                 ? Integer.MAX_VALUE
-                : Math.max(0, rules.getMaxSymbols() - fixed.size());
+                : Math.max(0, rules.getMaxSymbols() - fixedCount);
 
-        List<Ranked> chosen = new ArrayList<>();
+        Map<String, List<Ranked>> chosen = new LinkedHashMap<>();
+        markets.forEach(m -> chosen.put(m.name(), new ArrayList<>()));
         for (Scored s : eligible.subList(0, Math.min(Math.min(wanted, places), eligible.size()))) {
-            chosen.add(new Ranked(s.symbol(), s.dailyVolume()));
+            chosen.get(s.market()).add(new Ranked(s.symbol(), s.dailyVolume()));
         }
-        chosen.sort(Comparator.comparingDouble(Ranked::dailyVolume).reversed()
-                .thenComparing(Ranked::symbol));
+        chosen.values().forEach(list -> list.sort(Comparator.comparingDouble(Ranked::dailyVolume).reversed()
+                .thenComparing(Ranked::symbol)));
         return chosen;
     }
 

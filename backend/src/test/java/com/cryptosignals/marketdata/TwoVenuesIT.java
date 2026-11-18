@@ -39,8 +39,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Spot and futures run side by side: each picks its own coins by its own minimum volume, the same
- * coin gets an engine on each, and the API answers for the market it is asked about.
+ * Spot and futures run side by side: each picks its own coins by its own minimum volume, the
+ * minimum number of coins counts both together, the same coin gets an engine on each, and the API
+ * answers for the market it is asked about.
  *
  * <p>On the 2h timeframe, which no other test uses, so retiring unwatched markets here cannot
  * touch another test's data.
@@ -52,6 +53,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "crypto-signals.markets.volume-selection.enabled=true",
         "crypto-signals.markets.volume-selection.window=1d",
         "crypto-signals.markets.volume-selection.min-daily-volume-by-exchange=BINANCE_FUTURES:3000,BINANCE:500",
+        "crypto-signals.markets.volume-selection.min-symbols=7",
         "crypto-signals.markets.volume-selection.refresh-interval=3650d",
         "crypto-signals.markets.volume-selection.retry-interval=3650d"
 })
@@ -120,11 +122,14 @@ class TwoVenuesIT extends PostgresIntegrationTest {
     }
 
     @Test
-    @DisplayName("each market chooses its own coins by its own minimum and runs its own engines")
+    @DisplayName("each market chooses its own coins by its own minimum, both count towards the "
+            + "fewest coins, and each runs its own engines")
     void runSideBySide() throws Exception {
         storeHistory(FUTURES, "BBBUSDT");
         storeHistory(SPOT, "BBBUSDT");
         // Futures trade more: AAA and BBB clear futures' 3000; only BBB and CCC clear spot's 500.
+        // With SHIB on both that makes 6 coins; the seventh is AAA on spot, at 60% of spot's
+        // minimum, ahead of CCC on futures at 33% of futures'.
         doReturn(List.of(coin("AAA", 9000), coin("BBB", 4000), coin("CCC", 1000)))
                 .when(futuresClient).tradingActivity(any(), any());
         doReturn(List.of(coin("AAA", 300), coin("BBB", 800), coin("CCC", 600)))
@@ -132,15 +137,14 @@ class TwoVenuesIT extends PostgresIntegrationTest {
 
         WatchList futures = watchLists.of(FUTURES);
         WatchList spot = watchLists.of(SPOT);
-        futures.initialise();
-        spot.initialise();
+        watchLists.initialise();
         bootstrap.applyWatchList(FUTURES);
         bootstrap.applyWatchList(SPOT);
 
         assertThat(futures.symbols()).containsExactly("1000SHIBUSDT", "AAAUSDT", "BBBUSDT");
-        assertThat(spot.symbols()).containsExactly("SHIBUSDT", "BBBUSDT", "CCCUSDT");
+        assertThat(spot.symbols()).containsExactly("SHIBUSDT", "BBBUSDT", "CCCUSDT", "AAAUSDT");
         assertThat(analysisService.engine(FUTURES.name(), new MarketKey("AAAUSDT", TF))).isPresent();
-        assertThat(analysisService.engine(SPOT.name(), new MarketKey("AAAUSDT", TF))).isEmpty();
+        assertThat(analysisService.engine(FUTURES.name(), new MarketKey("CCCUSDT", TF))).isEmpty();
         assertThat(analysisService.engine(SPOT.name(), new MarketKey("CCCUSDT", TF))).isPresent();
 
         // The same coin on both: two engines over two stored series, levels that never share an id.
@@ -157,6 +161,10 @@ class TwoVenuesIT extends PostgresIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.exchange").value("BINANCE_FUTURES"))
                 .andExpect(jsonPath("$.rule.minDailyVolume").value(3000))
+                .andExpect(jsonPath("$.rule.minSymbols").value(7))
+                .andExpect(jsonPath("$.rule.markets").value(2))
+                .andExpect(jsonPath("$.count").value(3))
+                .andExpect(jsonPath("$.countAllMarkets").value(7))
                 .andExpect(jsonPath("$.symbols[0].symbol").value("1000SHIBUSDT"));
         mvc.perform(get("/api/watchlist").param("exchange", "binance"))
                 .andExpect(status().isOk())
@@ -164,7 +172,7 @@ class TwoVenuesIT extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$.exchangeLabel").value("Binance spot"))
                 .andExpect(jsonPath("$.rule.minDailyVolume").value(500))
                 .andExpect(jsonPath("$.symbols[0].symbol").value("SHIBUSDT"))
-                .andExpect(jsonPath("$.count").value(3));
+                .andExpect(jsonPath("$.count").value(4));
         mvc.perform(get("/api/config").param("exchange", "BINANCE"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.exchange.name").value("BINANCE"))
@@ -177,7 +185,7 @@ class TwoVenuesIT extends PostgresIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.exchange").value("BINANCE"))
                 .andExpect(jsonPath("$.bootstrap").value("READY"))
-                .andExpect(jsonPath("$.markets.length()").value(3))
+                .andExpect(jsonPath("$.markets.length()").value(4))
                 .andExpect(jsonPath("$.exchanges.length()").value(2));
         mvc.perform(get("/api/levels").param("symbol", "BBBUSDT").param("timeframe", "2h")
                         .param("exchange", "BINANCE_FUTURES"))

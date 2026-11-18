@@ -23,7 +23,8 @@ import java.util.Set;
 /**
  * Which symbols are watched on one market: the fixed ones from the configuration, plus — with
  * volume selection on — the most traded other coins (see {@link VolumeRanking}), with the
- * market's own minimum volume. Each market has its own list ({@link WatchLists}).
+ * market's own minimum volume. Each market has its own list; with several markets the lists are
+ * chosen together ({@link WatchLists#refresh()}), since {@code min-symbols} counts them together.
  *
  * <p>A fixed symbol is looked up under the market's own spelling, so one list serves spot and
  * futures: {@code 1000SHIBUSDT} on futures is {@code SHIBUSDT} on spot.
@@ -86,8 +87,28 @@ public class WatchList {
         this.fixed = properties.fixedSymbols();
     }
 
-    /** Loads the stored list and refreshes it from the exchange. Called once, at startup. */
+    /**
+     * Loads the stored list and refreshes it from the exchange, this market on its own. With
+     * several markets, {@link WatchLists#initialise()} does this for all of them together.
+     */
     public synchronized void initialise() {
+        load();
+        refresh();
+    }
+
+    /**
+     * Works the chosen coins out again from the exchange's volumes, this market on its own, and
+     * stores them. With several markets, {@link WatchLists#refresh()} does this for all of them.
+     *
+     * @return what changed, or empty if the exchange could not be asked (the list is then kept
+     *         as it was and the refresh is retried after the retry interval)
+     */
+    public Optional<Change> refresh() {
+        return WatchLists.refreshTogether(List.of(this), properties.getVolumeSelection()).get(this);
+    }
+
+    /** Looks up the fixed symbols' spellings and loads the stored list. Called once, at startup. */
+    synchronized void load() {
         fixed = listedFixedSymbols();
         if (!properties.getVolumeSelection().isEnabled()) {
             chosen = List.of();
@@ -108,69 +129,72 @@ public class WatchList {
         if (!previous.isEmpty()) {
             log.info("Watch list on {}: loaded {} coin(s) chosen by volume earlier", venue.label(), previous.size());
         }
-        refresh();
+    }
+
+    /** What the market trades, for a refresh. Not synchronized: the exchange may be slow to answer. */
+    List<SymbolActivity> tradingActivity() {
+        MarketProperties.VolumeSelection rules = properties.getVolumeSelection();
+        return exchange.tradingActivity(rules.getQuoteAsset(), rules.getWindow());
+    }
+
+    /** This market's part in a refresh: what it trades, its fixed and its chosen coins, its minimum. */
+    synchronized VolumeRanking.Market rankingInput(List<SymbolActivity> activity) {
+        return new VolumeRanking.Market(exchangeName, activity, fixed, symbolsOf(chosen), minDailyVolume());
     }
 
     /**
-     * Works the chosen coins out again from the exchange's volumes and stores them.
-     *
-     * @return what changed, or empty if the exchange could not be asked (the list is then kept
-     *         as it was and the refresh is retried after the retry interval)
+     * This market's part in a refresh when what it trades could not be read: the coins it watches
+     * now, counted as they are, none of them ranked.
      */
-    public synchronized Optional<Change> refresh() {
+    synchronized VolumeRanking.Market asItIs() {
+        return new VolumeRanking.Market(exchangeName, List.of(), symbols(), Set.of(), minDailyVolume());
+    }
+
+    /** Takes and stores the coins a refresh chose for this market. */
+    synchronized Change update(List<VolumeRanking.Ranked> ranked, List<SymbolActivity> activity, Instant now) {
         MarketProperties.VolumeSelection rules = properties.getVolumeSelection();
-        if (!rules.isEnabled()) {
-            return Optional.empty();
-        }
-        Instant now = Instant.now();
         lastAttemptAt = now;
-        try {
-            List<SymbolActivity> activity = exchange.tradingActivity(rules.getQuoteAsset(), rules.getWindow());
-            Set<String> current = symbolsOf(chosen);
-            List<VolumeRanking.Ranked> ranked = VolumeRanking.choose(activity, fixed, current, rules,
-                    minDailyVolume());
+        Set<String> current = symbolsOf(chosen);
+        Map<String, Instant> joined = new HashMap<>();
+        chosen.forEach(s -> joined.put(s.symbol(), s.selectedAt()));
+        List<WatchedSymbol> next = ranked.stream()
+                .map(r -> new WatchedSymbol(r.symbol(), r.dailyVolume(),
+                        joined.getOrDefault(r.symbol(), now), now))
+                .toList();
+        stored.replaceAll(exchangeName, next);
 
-            Map<String, Instant> joined = new HashMap<>();
-            chosen.forEach(s -> joined.put(s.symbol(), s.selectedAt()));
-            List<WatchedSymbol> next = ranked.stream()
-                    .map(r -> new WatchedSymbol(r.symbol(), r.dailyVolume(),
-                            joined.getOrDefault(r.symbol(), now), now))
-                    .toList();
-            stored.replaceAll(exchangeName, next);
+        Set<String> nextSymbols = symbolsOf(next);
+        List<String> added = nextSymbols.stream().filter(s -> !current.contains(s)).toList();
+        List<String> removed = current.stream().filter(s -> !nextSymbols.contains(s)).toList();
 
-            Set<String> nextSymbols = symbolsOf(next);
-            List<String> added = nextSymbols.stream().filter(s -> !current.contains(s)).toList();
-            List<String> removed = current.stream().filter(s -> !nextSymbols.contains(s)).toList();
-
-            Map<String, Double> known = new HashMap<>();
-            double days = rules.windowDays();
-            for (SymbolActivity a : activity) {
-                known.put(a.symbol().toUpperCase(Locale.ROOT), a.quoteVolume() / days);
-            }
-            chosen = next;
-            volumes = known;
-            source = Source.EXCHANGE;
-            settled = true;
-            refreshedAt = now;
-            lastError = null;
-            nextAttemptAt = now.plus(rules.getRefreshInterval());
-
-            log.info("Watch list on {}: {} symbol(s), {} fixed and {} chosen by volume (>= {} {}/day over {}{}); "
-                            + "added {}, removed {}",
-                    venue.label(), fixed.size() + next.size(), fixed.size(), next.size(),
-                    String.format(Locale.ROOT, "%,.0f", minDailyVolume()), rules.getQuoteAsset(),
-                    days(rules),
-                    (rules.getMinSymbols() == 0 ? "" : ", at least " + rules.getMinSymbols())
-                            + (rules.getMaxSymbols() == 0 ? "" : ", at most " + rules.getMaxSymbols()),
-                    added.isEmpty() ? "none" : added, removed.isEmpty() ? "none" : removed);
-            return Optional.of(new Change(added, removed));
-        } catch (RuntimeException ex) {
-            lastError = ex.toString();
-            nextAttemptAt = now.plus(rules.getRetryInterval());
-            log.warn("Could not refresh the watch list on {} ({}); keeping the current {} symbol(s), retrying at {}",
-                    venue.label(), ex.toString(), fixed.size() + chosen.size(), nextAttemptAt);
-            return Optional.empty();
+        Map<String, Double> known = new HashMap<>();
+        double days = rules.windowDays();
+        for (SymbolActivity a : activity) {
+            known.put(a.symbol().toUpperCase(Locale.ROOT), a.quoteVolume() / days);
         }
+        chosen = next;
+        volumes = known;
+        source = Source.EXCHANGE;
+        settled = true;
+        refreshedAt = now;
+        lastError = null;
+        nextAttemptAt = now.plus(rules.getRefreshInterval());
+
+        log.info("Watch list on {}: {} symbol(s), {} fixed and {} chosen by volume (>= {} {}/day over {}); "
+                        + "added {}, removed {}",
+                venue.label(), fixed.size() + next.size(), fixed.size(), next.size(),
+                String.format(Locale.ROOT, "%,.0f", minDailyVolume()), rules.getQuoteAsset(), days(rules),
+                added.isEmpty() ? "none" : added, removed.isEmpty() ? "none" : removed);
+        return new Change(added, removed);
+    }
+
+    /** Records a refresh that failed: the list is kept as it is and tried again after the retry interval. */
+    synchronized void failed(RuntimeException ex, Instant now) {
+        lastAttemptAt = now;
+        lastError = ex.toString();
+        nextAttemptAt = now.plus(properties.getVolumeSelection().getRetryInterval());
+        log.warn("Could not refresh the watch list on {} ({}); keeping the current {} symbol(s), retrying at {}",
+                venue.label(), ex.toString(), fixed.size() + chosen.size(), nextAttemptAt);
     }
 
     /** Whether a refresh is due: the refresh interval has passed, or a failed one is to be retried. */

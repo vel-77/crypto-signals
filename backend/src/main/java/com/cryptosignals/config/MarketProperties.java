@@ -105,8 +105,9 @@ public class MarketProperties {
      *
      * <p>Volume is the average traded value per day over {@link #window}, in the quote asset. A coin
      * joins when that reaches the market's minimum ({@link #minDailyVolumeFor}). If that makes
-     * fewer than {@link #minSymbols} coins in all, the next most traded coins fill up the list;
-     * at most {@link #maxSymbols} coins are watched in all, the highest volumes first. Stablecoins,
+     * fewer than {@link #minSymbols} coins across all markets, the coins nearest their market's
+     * minimum fill up the lists; at most {@link #maxSymbols} coins are watched across all markets,
+     * the highest volumes first. Stablecoins,
      * tokenized stocks and the like are skipped: their prices do not form crypto support and
      * resistance.
      */
@@ -138,12 +139,16 @@ public class MarketProperties {
         private Duration window = Duration.ofDays(7);
 
         /**
-         * Fewest coins watched in all, the fixed symbols included: when fewer clear the minimum
-         * volume, the next most traded coins make up the number. 0 means no minimum.
+         * Fewest coins watched across all markets together, the fixed symbols included once per
+         * market: when fewer clear their market's minimum volume, the coins nearest it make up the
+         * number, whichever market they trade on. 0 means no minimum.
          */
         private int minSymbols = 0;
 
-        /** Most coins watched in all, the fixed symbols included. 0 means no limit. */
+        /**
+         * Most coins watched across all markets together, the fixed symbols included once per
+         * market. 0 means no limit.
+         */
         private int maxSymbols = 0;
 
         /**

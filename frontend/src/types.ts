@@ -119,6 +119,8 @@ export interface WatchList {
   mode: 'VOLUME' | 'FIXED'
   source: 'FIXED' | 'STORED' | 'EXCHANGE'
   count: number
+  /** Coins watched on all markets together, this one included. */
+  countAllMarkets: number
   symbols: WatchedSymbol[]
   rule?: VolumeRule
   refreshedAt?: string
@@ -138,8 +140,10 @@ export interface VolumeRule {
   quoteAsset: string
   minDailyVolume: number
   window: string
+  /** Fewest / most coins across all `markets` together; 0 = none. */
   minSymbols: number
   maxSymbols: number
+  markets: number
   keepPercent: number
   minPriceRangePercent: number
   excludeTags: string[]

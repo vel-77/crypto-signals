@@ -95,8 +95,9 @@ public class MarketDataBootstrap implements ApplicationRunner {
         AtomicReference<State> state = states.get(venue.name());
         state.set(State.RUNNING);
         try {
+            // The lists are chosen together: the first market to get here does it for all.
+            watchLists.initialiseOnce();
             WatchList watchList = watchLists.of(venue);
-            watchList.initialise();
             List<MarketKey> ready = new ArrayList<>();
             for (MarketKey key : watchList.marketKeys()) {
                 if (startMarket(venue, key)) {
@@ -156,18 +157,25 @@ public class MarketDataBootstrap implements ApplicationRunner {
     }
 
     /**
-     * Refreshes each venue's watch list once it is due (daily by default, sooner after a failed
-     * attempt) and, if it changed, starts and stops markets to match.
+     * Refreshes the watch lists once one is due (daily by default, sooner after a failed attempt)
+     * and starts and stops markets to match on each venue that is running.
+     *
+     * <p>The lists are chosen together, so not while a venue is still starting: its markets would
+     * not follow the change.
      */
     @Scheduled(initialDelayString = "PT1M", fixedDelayString = "PT1M")
     public void refreshWatchList() {
-        for (Venue venue : venues.all()) {
-            WatchList watchList = watchLists.of(venue);
-            if (state(venue) != State.READY || !watchList.isDue(Instant.now())) {
-                continue;
-            }
-            watchList.refresh().ifPresent(change -> applyWatchList(venue));
+        boolean starting = venues.all().stream().map(this::state)
+                .anyMatch(s -> s == State.PENDING || s == State.RUNNING);
+        if (starting || !watchLists.isDue(Instant.now())) {
+            return;
         }
+        watchLists.refresh().forEach((watchList, change) -> {
+            Venue venue = watchList.venue();
+            if (change.isPresent() && state(venue) == State.READY) {
+                applyWatchList(venue);
+            }
+        });
     }
 
     /**
